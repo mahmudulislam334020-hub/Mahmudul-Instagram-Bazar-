@@ -1,4 +1,4 @@
-import TelegramBot from "node-telegram-bot-api";
+import TelegramBot = require("node-telegram-bot-api");
 import crypto from "crypto";
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';

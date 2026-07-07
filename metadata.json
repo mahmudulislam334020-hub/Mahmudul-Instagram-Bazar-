@@ -1,0 +1,6 @@
+{
+  "name": "Account Manager",
+  "description": "Administrative dashboard for managing user accounts and transactions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

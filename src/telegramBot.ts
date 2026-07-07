@@ -1,4 +1,10 @@
-import TelegramBot = require("node-telegram-bot-api");
+import _TelegramBot from "node-telegram-bot-api";
+
+const TelegramBot = (typeof _TelegramBot === "function"
+  ? _TelegramBot
+  : (_TelegramBot as any).default) as typeof _TelegramBot;
+
+type TelegramBot = _TelegramBot;
 import crypto from "crypto";
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';

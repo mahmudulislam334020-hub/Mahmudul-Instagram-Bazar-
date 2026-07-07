@@ -5,7 +5,7 @@ import { initTelegramBot } from "./src/telegramBot.js";
 
 async function getGlobalSettings() {
   try {
-    const url = `https://firestore.googleapis.com/v1/projects/gen-lang-client-0926578750/databases/ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c/documents/settings/global`;
+    const url = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents/settings/global`;
     const res = await fetch(url);
     if (!res.ok) {
       return null;
@@ -35,7 +35,7 @@ async function startServer() {
 
   // Initialize the Telegram Bot
   try {
-    initTelegramBot();
+    await initTelegramBot();
     console.log("Telegram Bot initialization triggered successfully.");
   } catch (err) {
     console.error("Failed to trigger Telegram Bot initialization:", err);
@@ -76,15 +76,47 @@ async function startServer() {
       }
 
       // Fetch profile from Firestore REST API
-      const profileUrl = `https://firestore.googleapis.com/v1/projects/gen-lang-client-0926578750/databases/ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c/documents/profiles/${targetWalletNumber}`;
+      let chatId: string | undefined;
+
+      const profileUrl = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents/profiles/${targetWalletNumber}`;
       const profileRes = await fetch(profileUrl);
-      if (!profileRes.ok) {
-        console.warn(`Profile document not found for user ${targetWalletNumber} in Firestore REST API`);
-        return res.json({ status: "skipped", message: "User profile does not exist in Firestore." });
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        chatId = profileData.fields?.telegramChatId?.stringValue;
       }
 
-      const profileData = await profileRes.json();
-      const chatId = profileData.fields?.telegramChatId?.stringValue;
+      // If not found or chat ID is missing, fall back to searching by walletNumber field using a structured query
+      if (!chatId) {
+        console.log(`Profile document not found directly by ID for user ${targetWalletNumber}, attempting structured query search...`);
+        const queryUrl = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents:runQuery`;
+        const queryRes = await fetch(queryUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: "profiles" }],
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: "walletNumber" },
+                  op: "EQUAL",
+                  value: { stringValue: targetWalletNumber }
+                }
+              },
+              limit: 1
+            }
+          })
+        });
+
+        if (queryRes.ok) {
+          const queryResults = await queryRes.json();
+          if (Array.isArray(queryResults) && queryResults.length > 0 && queryResults[0].document) {
+            const docData = queryResults[0].document;
+            chatId = docData.fields?.telegramChatId?.stringValue;
+            console.log(`Successfully found chat ID ${chatId} using structured query search.`);
+          }
+        }
+      }
+
       if (!chatId) {
         console.warn(`Profile for user ${targetWalletNumber} does not have a registered telegramChatId.`);
         return res.json({ status: "skipped", message: "User profile has no Telegram Chat ID linked yet." });

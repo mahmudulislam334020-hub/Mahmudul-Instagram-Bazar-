@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Instagram, 
@@ -17,7 +17,10 @@ import {
   Grid,
   Clipboard,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Database,
+  List
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -33,6 +36,10 @@ import {
   saveUserProfile,
   getUserProfile,
   getAllUserProfiles,
+  clearAllSubmissions,
+  clearAllWithdrawals,
+  clearAllUserProfiles,
+  updateSubmissionSubmittedBy,
   Submission,
   Withdrawal,
   AppSettings,
@@ -116,6 +123,7 @@ export default function App() {
     return localStorage.getItem("active_wallet_number") || localStorage.getItem("user_wallet_number") || "";
   });
   const [activeWalletType, setActiveWalletType] = useState<'bKash' | 'Nagad' | 'Rocket'>('bKash');
+  const [activeProfile, setActiveProfile] = useState<UserProfile | null>(null);
 
   // Keep workerName synchronized for backward compatible stats calculation
   const [workerName, setWorkerName] = useState(() => {
@@ -130,7 +138,8 @@ export default function App() {
     adminPassword: "admin123",
     usernamePrefix: "",
     dailyPassword: "",
-    minWithdraw: 50
+    minWithdraw: 50,
+    instagramWorkActive: true
   });
 
   // DB Data States
@@ -154,6 +163,14 @@ export default function App() {
   const [selectedSubIds, setSelectedSubIds] = useState<string[]>([]);
   const [selectedWithIds, setSelectedWithIds] = useState<string[]>([]);
   const [pastedUsernamesText, setPastedUsernamesText] = useState('');
+  const [adminSubTab, setAdminSubTab] = useState<'all' | 'user_summary' | 'db_control'>('all');
+  const [expandedWorker, setExpandedWorker] = useState<string | null>(null);
+  const [isClearingSubmissions, setIsClearingSubmissions] = useState(false);
+  const [isClearingWithdrawals, setIsClearingWithdrawals] = useState(false);
+  const [isClearingProfiles, setIsClearingProfiles] = useState(false);
+  const [clearConfirmationText, setClearConfirmationText] = useState('');
+  const [dbMessage, setDbMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [workerSearchQuery, setWorkerSearchQuery] = useState('');
   const [bulkPasteResult, setBulkPasteResult] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   // Telegram Broadcast States
@@ -188,12 +205,17 @@ export default function App() {
     setWorkerName(activeWalletNumber);
 
     const fetchActiveProfile = async () => {
-      if (!activeWalletNumber) return;
+      if (!activeWalletNumber) {
+        setActiveProfile(null);
+        return;
+      }
       try {
         const profile = await getUserProfile(activeWalletNumber);
         if (profile) {
           setActiveWalletType(profile.walletType);
+          setActiveProfile(profile);
         } else {
+          setActiveProfile(null);
           if (activeWalletNumber === userWalletNumber) {
             setActiveWalletType(userWalletType);
           } else {
@@ -202,6 +224,7 @@ export default function App() {
         }
       } catch (err) {
         console.warn("Failed to fetch active profile:", err);
+        setActiveProfile(null);
       }
     };
     fetchActiveProfile();
@@ -239,6 +262,72 @@ export default function App() {
     const interval = setInterval(loadAllData, 20000); // Poll every 20 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Self-healing: If there are submissions belonging to this user's telegramChatId
+  // but they aren't linked to the activeWalletNumber, link them in Firestore.
+  useEffect(() => {
+    if (!activeWalletNumber || !activeProfile || !(activeProfile as any).telegramChatId) return;
+
+    const unlinked = submissions.filter(
+      s => (s as any).telegramChatId === (activeProfile as any).telegramChatId && s.submittedBy !== activeWalletNumber
+    );
+
+    if (unlinked.length > 0) {
+      console.log(`Web client self-healing: Found ${unlinked.length} submissions to link to ${activeWalletNumber}`);
+      
+      const healAll = async () => {
+        let updatedAny = false;
+        for (const sub of unlinked) {
+          if (sub.id) {
+            try {
+              await updateSubmissionSubmittedBy(sub.id, activeWalletNumber);
+              updatedAny = true;
+            } catch (err) {
+              console.error(`Web client self-healing error for submission ${sub.id}:`, err);
+            }
+          }
+        }
+        if (updatedAny) {
+          loadAllData();
+        }
+      };
+
+      healAll();
+    }
+  }, [submissions, activeWalletNumber, activeProfile]);
+
+  // Memoized user submissions grouping
+  const groupedSubmissions = useMemo(() => {
+    const groups: Record<string, {
+      worker: string;
+      submissions: Submission[];
+      total: number;
+      approved: number;
+      pending: number;
+      rejected: number;
+    }> = {};
+
+    submissions.forEach((sub) => {
+      const worker = sub.submittedBy || 'Unknown Worker';
+      if (!groups[worker]) {
+        groups[worker] = {
+          worker,
+          submissions: [],
+          total: 0,
+          approved: 0,
+          pending: 0,
+          rejected: 0
+        };
+      }
+      groups[worker].submissions.push(sub);
+      groups[worker].total++;
+      if (sub.status === 'approved') groups[worker].approved++;
+      else if (sub.status === 'pending') groups[worker].pending++;
+      else if (sub.status === 'rejected') groups[worker].rejected++;
+    });
+
+    return Object.values(groups);
+  }, [submissions]);
 
   // Real-time 2FA/TOTP Code Generation & Countdown update loop
   useEffect(() => {
@@ -376,6 +465,70 @@ export default function App() {
       setSelectedSubIds(prev => prev.filter(subId => subId !== id));
     } catch (err) {
       console.error("Error deleting submission:", err);
+    }
+  };
+
+  // Admin: Clear All Submissions
+  const handleClearAllSubmissions = async () => {
+    if (clearConfirmationText.toUpperCase() !== 'CONFIRM') {
+      setDbMessage({ type: 'error', text: "অনুগ্রহ করে নিশ্চিত করতে 'CONFIRM' শব্দটি সঠিক বানানে লিখুন।" });
+      return;
+    }
+    setIsClearingSubmissions(true);
+    setDbMessage(null);
+    try {
+      await clearAllSubmissions();
+      setSubmissions([]);
+      setSelectedSubIds([]);
+      setClearConfirmationText('');
+      setDbMessage({ type: 'success', text: '✅ ডাটাবেজের সকল সাবমিশন সফলভাবে মুছে ফেলা হয়েছে!' });
+    } catch (err) {
+      console.error(err);
+      setDbMessage({ type: 'error', text: '❌ সাবমিশন মুছতে সমস্যা হয়েছে।' });
+    } finally {
+      setIsClearingSubmissions(false);
+    }
+  };
+
+  // Admin: Clear All Withdrawals
+  const handleClearAllWithdrawals = async () => {
+    if (clearConfirmationText.toUpperCase() !== 'CONFIRM') {
+      setDbMessage({ type: 'error', text: "অনুগ্রহ করে নিশ্চিত করতে 'CONFIRM' শব্দটি সঠিক বানানে লিখুন।" });
+      return;
+    }
+    setIsClearingWithdrawals(true);
+    setDbMessage(null);
+    try {
+      await clearAllWithdrawals();
+      setWithdrawals([]);
+      setSelectedWithIds([]);
+      setClearConfirmationText('');
+      setDbMessage({ type: 'success', text: '✅ ডাটাবেজের সকল উইথড্রয়াল সফলভাবে মুছে ফেলা হয়েছে!' });
+    } catch (err) {
+      console.error(err);
+      setDbMessage({ type: 'error', text: '❌ উইথড্রয়াল মুছতে সমস্যা হয়েছে।' });
+    } finally {
+      setIsClearingWithdrawals(false);
+    }
+  };
+
+  // Admin: Clear All User Profiles
+  const handleClearAllProfiles = async () => {
+    if (clearConfirmationText.toUpperCase() !== 'CONFIRM') {
+      setDbMessage({ type: 'error', text: "অনুগ্রহ করে নিশ্চিত করতে 'CONFIRM' শব্দটি সঠিক বানানে লিখুন।" });
+      return;
+    }
+    setIsClearingProfiles(true);
+    setDbMessage(null);
+    try {
+      await clearAllUserProfiles();
+      setClearConfirmationText('');
+      setDbMessage({ type: 'success', text: '✅ ডাটাবেজের সকল ইউজার প্রোফাইল সফলভাবে মুছে ফেলা হয়েছে!' });
+    } catch (err) {
+      console.error(err);
+      setDbMessage({ type: 'error', text: '❌ ইউজার প্রোফাইল মুছতে সমস্যা হয়েছে।' });
+    } finally {
+      setIsClearingProfiles(false);
     }
   };
 
@@ -1038,6 +1191,23 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Pending Balance Notice */}
+              {getPendingCount(workerName) > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl flex items-start gap-4 animate-pulse-subtle"
+                >
+                  <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+                  <div className="text-xs text-slate-300 space-y-1.5">
+                    <span className="font-bold text-amber-500 uppercase tracking-widest block">আইডি ভেরিফিকেশন অপেক্ষমান (Under Verification Review)</span>
+                    <p className="leading-relaxed text-[12px]">
+                      আপনার <strong>{getPendingCount(workerName)}টি আইডি সাবমিশন</strong> বর্তমানে এডমিন ভেরিফিকেশনের জন্য অপেক্ষায় (Pending) রয়েছে। এডমিন এগুলো চেক করে অনুমোদন (Approve) করলে আপনার উত্তোলনযোগ্য ব্যালেন্সে <strong>৳{getPendingCount(workerName) * settings.ratePerId} Taka</strong> যুক্ত হবে। আইডিগুলো এপ্রুভ হওয়ার পূর্বে আপনার উইথড্রযোগ্য ব্যালেন্স ৳০ দেখাবে। দয়া করে ধৈর্য ধরুন, ধন্যবাদ!
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
               {/* Quick Actions Card */}
               <div className="bg-gradient-to-r from-indigo-950/40 to-slate-900 border border-indigo-900/30 p-8 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
                 <div>
@@ -1077,7 +1247,21 @@ export default function App() {
           {/* INSTAGRAM WORK TAB */}
           {activeTab === 'instagram' && (
             <div className="max-w-xl mx-auto space-y-6">
-              {!credentials && submissionStatus !== 'success' && (
+              {settings.instagramWorkActive === false ? (
+                <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6 flex-grow">
+                  <div className="w-16 h-16 bg-rose-600/10 rounded-full flex items-center justify-center mx-auto border border-rose-500/20">
+                    <AlertCircle size={32} className="text-rose-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white mb-2">কাজটি সাময়িকভাবে বন্ধ আছে</h2>
+                    <p className="text-slate-400 text-sm">
+                      আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {!credentials && submissionStatus !== 'success' && (
                 <div className="flex flex-col h-full">
                   <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6 flex-grow">
                     <div className="w-16 h-16 bg-indigo-600/10 rounded-full flex items-center justify-center mx-auto border border-indigo-600/20">
@@ -1210,6 +1394,8 @@ export default function App() {
                     আরেকটি আইডি কাজ শুরু করুন
                   </button>
                 </div>
+              )}
+              </>
               )}
             </div>
           )}
@@ -1358,173 +1544,491 @@ export default function App() {
                 </div>
               </div>
 
-              {/* BULK USERNAME PASTE ACTIONS */}
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                      <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                      পেস্টিং বাল্ক একশন (Bulk Username Paste Action)
-                    </h4>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      একসাথে অনেকগুলো ইউজারনেম কপি করে এনে এখানে পেস্ট করে সরাসরি অনুমোদন বা বাতিল করতে পারেন।
-                    </p>
-                  </div>
-                  <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded font-bold border border-indigo-500/15">অটো-টেলিগ্রাম নোটিফিকেশন ⚡</span>
-                </div>
-
-                <div className="space-y-3">
-                  <textarea
-                    rows={3}
-                    value={pastedUsernamesText}
-                    onChange={(e) => setPastedUsernamesText(e.target.value)}
-                    placeholder="এখানে ইউজারনেমগুলো পেস্ট করুন (যেমন: abir_khan_secure4783, tanvir_ig_insta9344 অথবা স্পেস, কমা বা নতুন লাইনে আলাদা করে লিখুন)"
-                    className="w-full bg-slate-950 border border-slate-800 p-4 rounded-xl text-slate-300 text-xs font-mono outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600 leading-relaxed"
-                  />
-
-                  {bulkPasteResult && (
-                    <div className={`p-3 rounded-xl text-xs font-medium leading-relaxed border ${
-                      bulkPasteResult.type === 'success' 
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                    }`}>
-                      {bulkPasteResult.text}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-2 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleBulkPasteAction('rejected')}
-                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                    >
-                      ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBulkPasteAction('approved')}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                    >
-                      ✅ পেস্টকৃতগুলো অনুমোদন করুন (Bulk Approve)
-                    </button>
-                  </div>
-                </div>
+              {/* ADMIN SUB-TABS NAVIGATION */}
+              <div className="flex border-b border-slate-800 gap-1">
+                <button
+                  onClick={() => setAdminSubTab('all')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
+                    adminSubTab === 'all'
+                      ? 'bg-slate-900 border-slate-800 text-white border-t-indigo-500'
+                      : 'bg-transparent border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <List size={14} />
+                  <span>সব আইডি তালিকা ({submissions.length})</span>
+                </button>
+                <button
+                  onClick={() => setAdminSubTab('user_summary')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
+                    adminSubTab === 'user_summary'
+                      ? 'bg-slate-900 border-slate-800 text-white border-t-indigo-500'
+                      : 'bg-transparent border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Users size={14} />
+                  <span>ইউজার ভিত্তিক সামারি ({groupedSubmissions.length})</span>
+                </button>
+                <button
+                  onClick={() => setAdminSubTab('db_control')}
+                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
+                    adminSubTab === 'db_control'
+                      ? 'bg-slate-900 border-slate-800 text-white border-t-rose-500 font-bold text-rose-400'
+                      : 'bg-transparent border-transparent text-rose-500/70 hover:text-rose-400'
+                  }`}
+                >
+                  <Database size={14} />
+                  <span>ডাটাবেজ কন্ট্রোল ও রিসেট ⚠️</span>
+                </button>
               </div>
 
-              {/* Submissions list */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
-                        <th className="py-4 px-6 w-12 text-center">
-                          <input 
-                            type="checkbox"
-                            checked={selectedSubIds.length === submissions.length && submissions.length > 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedSubIds(submissions.map(s => s.id || '').filter(Boolean));
-                              } else {
-                                setSelectedSubIds([]);
-                              }
-                            }}
-                            className="rounded accent-indigo-600"
-                          />
-                        </th>
-                        <th className="py-4 px-4">Username</th>
-                        <th className="py-4 px-4">Password</th>
-                        <th className="py-4 px-4">2FA Key</th>
-                        <th className="py-4 px-4">Worker</th>
-                        <th className="py-4 px-4">Submitted At</th>
-                        <th className="py-4 px-4 text-center">Status</th>
-                        <th className="py-4 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {submissions.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="py-10 text-center text-slate-500 text-sm">কোনো আইডি এখনও জমা দেওয়া হয়নি।</td>
-                        </tr>
-                      ) : (
-                        submissions.map((sub, index) => (
-                          <tr key={sub.id || index} className="hover:bg-slate-950/40 transition-colors">
-                            <td className="py-4 px-6 text-center">
+              {adminSubTab === 'all' && (
+                <>
+                  {/* BULK USERNAME PASTE ACTIONS */}
+                  <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                          পেস্টিং বাল্ক একশন (Bulk Username Paste Action)
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          একসাথে অনেকগুলো ইউজারনেম কপি করে এনে এখানে পেস্ট করে সরাসরি অনুমোদন বা বাতিল করতে পারেন।
+                        </p>
+                      </div>
+                      <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded font-bold border border-indigo-500/15">অটো-টেলিগ্রাম নোটিফিকেশন ⚡</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      <textarea
+                        rows={3}
+                        value={pastedUsernamesText}
+                        onChange={(e) => setPastedUsernamesText(e.target.value)}
+                        placeholder="এখানে ইউজারনেমগুলো পেস্ট করুন (যেমন: abir_khan_secure4783, tanvir_ig_insta9344 অথবা স্পেস, কমা বা নতুন লাইনে আলাদা করে লিখুন)"
+                        className="w-full bg-slate-950 border border-slate-800 p-4 rounded-xl text-slate-300 text-xs font-mono outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600 leading-relaxed"
+                      />
+
+                      {bulkPasteResult && (
+                        <div className={`p-3 rounded-xl text-xs font-medium leading-relaxed border ${
+                          bulkPasteResult.type === 'success' 
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                        }`}>
+                          {bulkPasteResult.text}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleBulkPasteAction('rejected')}
+                          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                        >
+                          ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleBulkPasteAction('approved')}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                        >
+                          ✅ পেস্টকৃতগুলো অনুমোদন করুন (Bulk Approve)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Submissions list */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
+                            <th className="py-4 px-6 w-12 text-center">
                               <input 
                                 type="checkbox"
-                                checked={selectedSubIds.includes(sub.id || '')}
+                                checked={selectedSubIds.length === submissions.length && submissions.length > 0}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedSubIds(prev => [...prev, sub.id || '']);
+                                    setSelectedSubIds(submissions.map(s => s.id || '').filter(Boolean));
                                   } else {
-                                    setSelectedSubIds(prev => prev.filter(id => id !== sub.id));
+                                    setSelectedSubIds([]);
                                   }
                                 }}
                                 className="rounded accent-indigo-600"
                               />
-                            </td>
-                            <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
-                            <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
-                            <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
-                            <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.submittedBy}</td>
-                            <td className="py-4 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
-                            <td className="py-4 px-4 text-center">
-                              <span className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${
-                                sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                                sub.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
-                                'bg-amber-500/10 text-amber-500'
-                              }`}>
-                                {sub.status}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 text-right">
-                              {sub.status === 'pending' ? (
-                                <div className="flex gap-1.5 justify-end">
-                                  <button 
-                                    onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
-                                    className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors"
-                                    title="Approve"
-                                  >
-                                    ✓
-                                  </button>
-                                  <button 
-                                    onClick={() => handleApproveRejectSub(sub.id || '', 'rejected')}
-                                    className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg transition-colors"
-                                    title="Reject"
-                                  >
-                                    ✕
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteSub(sub.id || '')}
-                                    className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                    title="Delete"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="flex gap-2 justify-end items-center">
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                                    sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                                  }`}>
-                                    {sub.status === 'approved' ? 'Approved' : 'Rejected'}
-                                  </span>
-                                  <button 
-                                    onClick={() => handleDeleteSub(sub.id || '')}
-                                    className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                    title="Delete"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
+                            </th>
+                            <th className="py-4 px-4">Username</th>
+                            <th className="py-4 px-4">Password</th>
+                            <th className="py-4 px-4">2FA Key</th>
+                            <th className="py-4 px-4">Worker</th>
+                            <th className="py-4 px-4">Submitted At</th>
+                            <th className="py-4 px-4 text-center">Status</th>
+                            <th className="py-4 px-4 text-right">Actions</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {submissions.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="py-10 text-center text-slate-500 text-sm">কোনো আইডি এখনও জমা দেওয়া হয়নি।</td>
+                            </tr>
+                          ) : (
+                            submissions.map((sub, index) => (
+                              <tr key={sub.id || index} className="hover:bg-slate-950/40 transition-colors">
+                                <td className="py-4 px-6 text-center">
+                                  <input 
+                                    type="checkbox"
+                                    checked={selectedSubIds.includes(sub.id || '')}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedSubIds(prev => [...prev, sub.id || '']);
+                                      } else {
+                                        setSelectedSubIds(prev => prev.filter(id => id !== sub.id));
+                                      }
+                                    }}
+                                    className="rounded accent-indigo-600"
+                                  />
+                                </td>
+                                <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
+                                <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
+                                <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
+                                <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.submittedBy}</td>
+                                <td className="py-4 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
+                                <td className="py-4 px-4 text-center">
+                                  <span className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${
+                                    sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
+                                    sub.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
+                                    'bg-amber-500/10 text-amber-500'
+                                  }`}>
+                                    {sub.status}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  {sub.status === 'pending' ? (
+                                    <div className="flex gap-1.5 justify-end">
+                                      <button 
+                                        onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
+                                        className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors"
+                                        title="Approve"
+                                      >
+                                        ✓
+                                      </button>
+                                      <button 
+                                        onClick={() => handleApproveRejectSub(sub.id || '', 'rejected')}
+                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg transition-colors"
+                                        title="Reject"
+                                      >
+                                        ✕
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteSub(sub.id || '')}
+                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-2 justify-end items-center">
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                                        sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                                      }`}>
+                                        {sub.status === 'approved' ? 'Approved' : 'Rejected'}
+                                      </span>
+                                      <button 
+                                        onClick={() => handleDeleteSub(sub.id || '')}
+                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {adminSubTab === 'user_summary' && (
+                <div className="space-y-6 animate-fade-in">
+                  {/* Search Bar */}
+                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col sm:flex-row items-center gap-3">
+                    <div className="relative flex-1 w-full">
+                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                        <Users size={15} />
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="ইউজার (ওয়ালেট নাম্বার) অথবা আইডি দিয়ে সার্চ করুন..."
+                        value={workerSearchQuery}
+                        onChange={(e) => setWorkerSearchQuery(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-lg text-slate-300 text-xs outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                      />
+                    </div>
+                    {workerSearchQuery && (
+                      <button
+                        onClick={() => setWorkerSearchQuery('')}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20"
+                      >
+                        ক্লিয়ার করুন
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Grouped list */}
+                  <div className="grid grid-cols-1 gap-4">
+                    {(() => {
+                      const query = workerSearchQuery.toLowerCase().trim();
+                      const filteredGroups = groupedSubmissions.filter(g => {
+                        if (!query) return true;
+                        // Match worker name
+                        if (g.worker.toLowerCase().includes(query)) return true;
+                        // Match any of their submission IDs
+                        return g.submissions.some(sub => 
+                          sub.username.toLowerCase().includes(query) ||
+                          sub.password.toLowerCase().includes(query) ||
+                          sub.twoFactorKey.toLowerCase().includes(query)
+                        );
+                      });
+
+                      if (filteredGroups.length === 0) {
+                        return (
+                          <div className="bg-slate-900 border border-slate-800 rounded-2xl py-12 text-center text-slate-500 text-sm">
+                            কোনো তথ্য পাওয়া যায়নি।
+                          </div>
+                        );
+                      }
+
+                      return filteredGroups.map((group) => {
+                        const isExpanded = expandedWorker === group.worker;
+                        return (
+                          <div key={group.worker} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden transition-all">
+                            {/* Header row */}
+                            <div 
+                              onClick={() => setExpandedWorker(isExpanded ? null : group.worker)}
+                              className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-950/20 cursor-pointer transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 text-indigo-400">
+                                  <User size={18} />
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                    {group.worker}
+                                    <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full font-bold border border-indigo-500/15">Worker</span>
+                                  </h4>
+                                  <p className="text-[10.5px] text-slate-400 mt-1">
+                                    মোট আইডি সাবমিট করেছেন: <strong className="text-white">{group.total} টি</strong>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-bold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/15">
+                                  Approved: {group.approved}
+                                </span>
+                                <span className="text-[10px] font-bold px-2.5 py-1 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/15">
+                                  Pending: {group.pending}
+                                </span>
+                                <span className="text-[10px] font-bold px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded-full border border-rose-500/15">
+                                  Rejected: {group.rejected}
+                                </span>
+                                <div className="text-slate-400 ml-2">
+                                  {isExpanded ? '▲' : '▼'}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expandable IDs list */}
+                            {isExpanded && (
+                              <div className="border-t border-slate-800/80 bg-slate-950/40 p-5 space-y-3">
+                                <h5 className="text-xs font-bold text-slate-300">সাবমিটকৃত আইডি সমূহের তালিকা:</h5>
+                                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                                  <table className="w-full text-left border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
+                                        <th className="py-3 px-4">Username</th>
+                                        <th className="py-3 px-4">Password</th>
+                                        <th className="py-3 px-4">2FA Key</th>
+                                        <th className="py-3 px-4">Submitted At</th>
+                                        <th className="py-3 px-4 text-center">Status</th>
+                                        <th className="py-3 px-4 text-right">Actions</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                      {group.submissions.map((sub, idx) => (
+                                        <tr key={sub.id || idx} className="hover:bg-slate-950/20 transition-colors">
+                                          <td className="py-3.5 px-4 font-mono text-xs text-white max-w-[130px] truncate" title={sub.username}>{sub.username}</td>
+                                          <td className="py-3.5 px-4 font-mono text-xs text-slate-400 max-w-[130px] truncate" title={sub.password}>{sub.password}</td>
+                                          <td className="py-3.5 px-4 font-mono text-xs text-indigo-400 max-w-[150px] truncate" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
+                                          <td className="py-3.5 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
+                                          <td className="py-3.5 px-4 text-center">
+                                            <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${
+                                              sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
+                                              sub.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
+                                              'bg-amber-500/10 text-amber-500'
+                                            }`}>
+                                              {sub.status}
+                                            </span>
+                                          </td>
+                                          <td className="py-3.5 px-4 text-right">
+                                            {sub.status === 'pending' ? (
+                                              <div className="flex gap-1.5 justify-end">
+                                                <button 
+                                                  onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
+                                                  className="w-7 h-7 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg text-xs transition-colors"
+                                                  title="Approve"
+                                                >
+                                                  ✓
+                                                </button>
+                                                <button 
+                                                  onClick={() => handleApproveRejectSub(sub.id || '', 'rejected')}
+                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg text-xs transition-colors"
+                                                  title="Reject"
+                                                >
+                                                  ✕
+                                                </button>
+                                                <button 
+                                                  onClick={() => handleDeleteSub(sub.id || '')}
+                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
+                                                  title="Delete"
+                                                >
+                                                  <Trash2 size={12} />
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="flex gap-2 justify-end items-center">
+                                                <button 
+                                                  onClick={() => handleDeleteSub(sub.id || '')}
+                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
+                                                  title="Delete"
+                                                >
+                                                  <Trash2 size={12} />
+                                                </button>
+                                              </div>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {adminSubTab === 'db_control' && (
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6 animate-fade-in">
+                  {/* Warning Header */}
+                  <div className="bg-rose-500/10 border border-rose-500/20 p-5 rounded-xl flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 shrink-0">
+                      <AlertCircle size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">বিপজ্জনক অঞ্চল (Danger Zone) — ডাটা রিসেট ও ডাটাবেজ ক্লিয়ারিং</h4>
+                      <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                        এখানে থাকা অপশনগুলো ব্যবহার করে ডাটাবেজের সকল রেকর্ড চিরতরে মুছে ফেলা সম্ভব। এই অ্যাকশন সম্পূর্ণ অপরিবর্তনশীল (Irreversible) এবং কোনো ব্যাকআপ রিকভারি সম্ভব নয়। অনুগ্রহ করে সতর্কতার সাথে সিদ্ধান্ত নিন।
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Feedback Message */}
+                  {dbMessage && (
+                    <div className={`p-4 rounded-xl text-xs font-semibold border ${
+                      dbMessage.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                    }`}>
+                      {dbMessage.text}
+                    </div>
+                  )}
+
+                  {/* Safety input lock */}
+                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800/80 space-y-3">
+                    <label className="text-xs font-bold text-slate-300 block">
+                      নিশ্চিত করতে নিচে ইংরেজি বড় হাতের অক্ষরে <strong className="text-rose-400 font-mono">"CONFIRM"</strong> লিখুন:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="CONFIRM"
+                      value={clearConfirmationText}
+                      onChange={(e) => setClearConfirmationText(e.target.value)}
+                      className="w-full max-w-xs bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-200 text-sm font-bold uppercase tracking-wider outline-none focus:border-rose-500 transition-all placeholder:text-slate-700"
+                    />
+                  </div>
+
+                  {/* Danger operations actions */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                    {/* Clear Submissions Card */}
+                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
+                      <div>
+                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                          আইডি সাবমিশন ক্লিয়ার
+                        </h5>
+                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                          ডাটাবেজের সকল ইউজার আইডি সাবমিশন রেকর্ড (মোট {submissions.length}টি) মুছে ফেলে সম্পূর্ণ শূন্য করে দেওয়া হবে।
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleClearAllSubmissions}
+                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingSubmissions}
+                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
+                      >
+                        {isClearingSubmissions ? 'মুছে ফেলা হচ্ছে...' : 'সব সাবমিশন মুছুন ❌'}
+                      </button>
+                    </div>
+
+                    {/* Clear Withdrawals Card */}
+                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
+                      <div>
+                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                          উইথড্রয়াল ক্লিয়ার
+                        </h5>
+                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                          ডাটাবেজের সকল প্রকার পেমেন্ট উইথড্রয়াল হিস্ট্রি (মোট {withdrawals.length}টি) মুছে ফেলা হবে।
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleClearAllWithdrawals}
+                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingWithdrawals}
+                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
+                      >
+                        {isClearingWithdrawals ? 'মুছে ফেলা হচ্ছে...' : 'সব উইথড্রয়াল মুছুন ❌'}
+                      </button>
+                    </div>
+
+                    {/* Clear User Profiles Card */}
+                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
+                      <div>
+                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                          ইউজার প্রোফাইল ক্লিয়ার
+                        </h5>
+                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                          ডাটাবেজে নিবন্ধিত সকল ওয়ার্কার বা ব্যবহারকারী প্রোফাইল সম্পূর্ণ ডিলিট বা রিসেট করে দেওয়া হবে।
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleClearAllProfiles}
+                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingProfiles}
+                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
+                      >
+                        {isClearingProfiles ? 'মুছে ফেলা হচ্ছে...' : 'সব ইউজার প্রোফাইল মুছুন ❌'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1589,6 +2093,12 @@ export default function App() {
                                   >
                                     Approve
                                   </button>
+                                  <button 
+                                    onClick={() => handleApproveRejectWithdraw(w.id || '', 'rejected')}
+                                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] rounded-lg transition-colors"
+                                  >
+                                    Reject
+                                  </button>
                                 </div>
                               ) : (
                                 <span className="text-[10px] text-slate-500 font-bold uppercase">Settled</span>
@@ -1636,6 +2146,26 @@ export default function App() {
                         className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
                       />
                     </div>
+                  </div>
+
+                  {/* Work Status Toggle */}
+                  <div className="bg-slate-950 border border-slate-800 p-4 rounded-lg flex items-center justify-between gap-4">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Instagram Work Status (ইন্সটাগ্রাম কাজ সচল/বন্ধ)</span>
+                      <span className="text-xs text-slate-300 font-bold">
+                        {settings.instagramWorkActive !== false ? "🟢 সচল (ON)" : "🔴 বন্ধ (OFF)"}
+                      </span>
+                      <p className="text-[9px] text-slate-500 mt-0.5">
+                        এটি বন্ধ করলে টেলিগ্রামের কাজ এবং ওয়েবসাইটের নতুন আইডি তৈরি সাময়িকভাবে বন্ধ হয়ে যাবে।
+                      </p>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setAppSettings(prev => ({ ...prev, instagramWorkActive: prev.instagramWorkActive === false ? true : false }))} 
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all shrink-0 ${settings.instagramWorkActive !== false ? 'bg-indigo-600' : 'bg-slate-800'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all ${settings.instagramWorkActive !== false ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
                   </div>
 
                   {/* Telegram token */}
@@ -1702,21 +2232,6 @@ export default function App() {
                     />
                     <p className="text-[10px] text-slate-500 mt-1">
                       নির্ধারিত পাসওয়ার্ড দিলে ইউজার কাজ শুরু করার পর অটোমেটিক এই পাসওয়ার্ডটিই পাবে।
-                    </p>
-                  </div>
-
-                  {/* Generated Username Prefix */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Generated Username Prefix (ঐচ্ছিক)</label>
-                    <input 
-                      type="text"
-                      placeholder="খালি রাখলে রেন্ডম নাম জেনারেট হবে"
-                      value={settings.usernamePrefix || ''}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, usernamePrefix: e.target.value }))}
-                      className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      যেকোনো প্রিফিক্স দিলে ইউজারনেম সেটির সাথে রেন্ডম ৪ ডিজিট মিলিয়ে তৈরি হবে (যেমন: abir4839)।
                     </p>
                   </div>
 

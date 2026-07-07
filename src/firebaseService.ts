@@ -9,7 +9,9 @@ import {
   orderBy, 
   setDoc,
   getDoc,
-  deleteDoc
+  deleteDoc,
+  where,
+  limit
 } from "firebase/firestore";
 
 export interface Submission {
@@ -40,12 +42,14 @@ export interface AppSettings {
   usernamePrefix?: string;
   dailyPassword?: string;
   minWithdraw?: number;
+  instagramWorkActive?: boolean;
 }
 
 export interface UserProfile {
   walletNumber: string;
   walletType: "bKash" | "Nagad" | "Rocket";
   createdAt: string;
+  telegramChatId?: string;
 }
 
 // Memory & LocalStorage Fallback database to ensure 100% uptime and testability
@@ -76,7 +80,8 @@ const getFallbackSettings = (): AppSettings => {
     adminPassword: "admin123",
     usernamePrefix: "",
     dailyPassword: "",
-    minWithdraw: 50
+    minWithdraw: 50,
+    instagramWorkActive: true
   };
 };
 
@@ -147,6 +152,21 @@ export async function updateSubmissionStatus(id: string, status: "approved" | "r
     const index = subs.findIndex(s => s.id === id);
     if (index !== -1) {
       subs[index].status = status;
+      saveFallbackSubmissions(subs);
+    }
+  }
+}
+
+export async function updateSubmissionSubmittedBy(id: string, submittedBy: string): Promise<void> {
+  try {
+    const docRef = doc(db, "submissions", id);
+    await withTimeout(updateDoc(docRef, { submittedBy }));
+  } catch (error) {
+    console.warn("Firestore update submittedBy error, updating fallback:", error);
+    const subs = getFallbackSubmissions();
+    const index = subs.findIndex(s => s.id === id);
+    if (index !== -1) {
+      subs[index].submittedBy = submittedBy;
       saveFallbackSubmissions(subs);
     }
   }
@@ -271,6 +291,14 @@ export async function getUserProfile(walletNumber: string): Promise<UserProfile 
     if (docSnap.exists()) {
       return docSnap.data() as UserProfile;
     }
+    
+    // Fallback: search by walletNumber field inside profiles collection
+    const q = query(collection(db, "profiles"), where("walletNumber", "==", walletNumber), limit(1));
+    const querySnapshot = await withTimeout(getDocs(q), 2000);
+    if (!querySnapshot.empty) {
+      return querySnapshot.docs[0].data() as UserProfile;
+    }
+
     const fallbacks = getFallbackProfiles();
     return fallbacks.find(p => p.walletNumber === walletNumber) || null;
   } catch (error) {
@@ -312,5 +340,50 @@ async function notifyTelegram(sub: Omit<Submission, "id">) {
   } catch (e) {
     console.error("Failed to notify telegram:", e);
   }
+}
+
+export async function clearAllSubmissions(): Promise<void> {
+  try {
+    const q = collection(db, "submissions");
+    const querySnapshot = await withTimeout(getDocs(q), 5000);
+    const deletePromises: Promise<void>[] = [];
+    querySnapshot.forEach((docSnap) => {
+      deletePromises.push(deleteDoc(docSnap.ref));
+    });
+    await Promise.all(deletePromises);
+  } catch (error) {
+    console.warn("Firestore clear submissions error, using fallback:", error);
+  }
+  saveFallbackSubmissions([]);
+}
+
+export async function clearAllWithdrawals(): Promise<void> {
+  try {
+    const q = collection(db, "withdrawals");
+    const querySnapshot = await withTimeout(getDocs(q), 5000);
+    const deletePromises: Promise<void>[] = [];
+    querySnapshot.forEach((docSnap) => {
+      deletePromises.push(deleteDoc(docSnap.ref));
+    });
+    await Promise.all(deletePromises);
+  } catch (error) {
+    console.warn("Firestore clear withdrawals error, using fallback:", error);
+  }
+  saveFallbackWithdrawals([]);
+}
+
+export async function clearAllUserProfiles(): Promise<void> {
+  try {
+    const q = collection(db, "profiles");
+    const querySnapshot = await withTimeout(getDocs(q), 5000);
+    const deletePromises: Promise<void>[] = [];
+    querySnapshot.forEach((docSnap) => {
+      deletePromises.push(deleteDoc(docSnap.ref));
+    });
+    await Promise.all(deletePromises);
+  } catch (error) {
+    console.warn("Firestore clear profiles error, using fallback:", error);
+  }
+  localStorage.removeItem("fallback_profiles");
 }
 

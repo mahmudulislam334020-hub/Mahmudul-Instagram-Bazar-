@@ -1,11 +1,10 @@
 import * as OTPAuth from 'otpauth';
 
 export function generateCredentials(prefix?: string, dailyPassword?: string) {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let username = "";
-  if (prefix) {
-    username = `${prefix.trim()}${Math.floor(1000 + Math.random() * 9000)}`;
-  } else {
-    username = `instajob_${Math.random().toString(36).substring(2, 8)}`;
+  for (let i = 0; i < 10; i++) {
+    username += chars.charAt(Math.floor(Math.random() * chars.length));
   }
 
   let password = "";

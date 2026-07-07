@@ -21,10 +21,10 @@ interface BotState {
   step: 
     | 'main_menu' 
     | 'awaiting_instagram_2fa_key' 
+    | 'awaiting_withdraw_method'
+    | 'awaiting_withdraw_number'
     | 'awaiting_withdraw_amount'
-    | 'awaiting_independent_2fa_key'
-    | 'awaiting_wallet_number'
-    | 'awaiting_wallet_type';
+    | 'awaiting_independent_2fa_key';
   instagramData?: {
     username?: string;
     password?: string;
@@ -32,9 +32,9 @@ interface BotState {
     credentialMsgId?: number; // Message containing the auto username/password
     promptMsgId?: number;     // Message requesting 2FA or displaying TOTP
   };
-  walletData?: {
+  withdrawData?: {
+    method?: 'bKash' | 'Nagad' | 'Rocket';
     number?: string;
-    type?: 'bKash' | 'Nagad' | 'Rocket';
   };
 }
 
@@ -100,68 +100,106 @@ function generatePrefixlessUsername(): string {
 
 // --- Helper: Credential Generator ---
 function generateInstagramCreds(prefix?: string, dailyPassword?: string) {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let username = "";
-  if (prefix) {
-    const num = Math.floor(1000 + Math.random() * 9000);
-    username = `${prefix.trim()}${num}`;
-  } else {
-    const firstNames = ["abir", "siam", "sabbir", "mishu", "arif", "tanvir", "shakib", "fahim", "rakib", "emon", "shakil", "nirob", "russel", "ruman"];
-    const lastNames = ["khan", "ahmed", "hossain", "rahman", "chowdhury", "islam", "hasan", "sheikh", "talukder", "bhuiyan"];
-    const suffixes = ["insta", "ig", "safe", "work", "verify", "secure"];
-    
-    const fn = firstNames[Math.floor(Math.random() * firstNames.length)];
-    const ln = lastNames[Math.floor(Math.random() * lastNames.length)];
-    const suf = suffixes[Math.floor(Math.random() * suffixes.length)];
-    const num = Math.floor(1000 + Math.random() * 9000); // 4 digits
-    username = `${fn}_${ln}_${suf}${num}`;
+  for (let i = 0; i < 10; i++) {
+    username += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   
   let password = "";
   if (dailyPassword) {
     password = dailyPassword;
   } else {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%*";
+    const passChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%*";
     for (let i = 0; i < 10; i++) {
-      password += chars[Math.floor(Math.random() * chars.length)];
+      password += passChars[Math.floor(Math.random() * passChars.length)];
     }
   }
   return { username, password };
 }
 
 // --- Helper: Fetch user statistics ---
-async function getUserStats(walletNumber: string) {
+async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const settingsRef = doc(db, "settings", "global");
   const settingsSnap = await getDoc(settingsRef);
   const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
   const ratePerId = settings.ratePerId || 45;
 
   const submissionsRef = collection(db, "submissions");
-  const subSnap = await getDocs(submissionsRef);
-  const submissions: any[] = [];
-  subSnap.forEach(d => {
-    submissions.push(d.data());
-  });
+  const uniqueSubmissions = new Map<string, any>();
 
-  const withdrawalsRef = collection(db, "withdrawals");
-  const withSnap = await getDocs(withdrawalsRef);
-  const withdrawals: any[] = [];
-  withSnap.forEach(d => {
-    withdrawals.push(d.data());
-  });
+  // Fetch by walletNumber if provided
+  if (walletNumber) {
+    const q1 = query(submissionsRef, where("submittedBy", "==", walletNumber));
+    const snap1 = await getDocs(q1);
+    snap1.forEach(docSnap => {
+      uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+    });
+  }
 
-  const userSubmissions = submissions.filter(s => s.submittedBy === walletNumber);
+  // Fetch by telegramChatId if provided
+  if (telegramChatId) {
+    const q2 = query(submissionsRef, where("telegramChatId", "==", String(telegramChatId)));
+    const snap2 = await getDocs(q2);
+    snap2.forEach(docSnap => {
+      uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+    });
+  }
+
+  const userSubmissions = Array.from(uniqueSubmissions.values());
+
+  // Self-Healing logic:
+  // If we have both telegramChatId and walletNumber, and some submissions under this telegramChatId 
+  // do not have the current walletNumber set, update them in Firestore.
+  if (telegramChatId && walletNumber) {
+    for (const sub of userSubmissions) {
+      if (sub.telegramChatId === String(telegramChatId) && sub.submittedBy !== walletNumber) {
+        try {
+          console.log(`Self-healing: Updating submission ${sub.id} submittedBy to ${walletNumber}`);
+          const subDocRef = doc(db, "submissions", sub.id);
+          await updateDoc(subDocRef, { submittedBy: walletNumber });
+          sub.submittedBy = walletNumber; // Update in-memory for immediate correct stat calculation
+        } catch (err) {
+          console.error(`Error self-healing submission ${sub.id}:`, err);
+        }
+      }
+    }
+  }
+
   const approvedCount = userSubmissions.filter(s => s.status === "approved").length;
   const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
   const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
 
   const totalEarned = approvedCount * ratePerId;
 
+  // Fetch withdrawals for this user (by telegramChatId and/or walletNumber)
+  const withdrawalsRef = collection(db, "withdrawals");
+  const uniqueWithdrawals = new Map<string, any>();
+
+  if (telegramChatId) {
+    const wQuery1 = query(withdrawalsRef, where("telegramChatId", "==", String(telegramChatId)));
+    const wSnap1 = await getDocs(wQuery1);
+    wSnap1.forEach(docSnap => {
+      uniqueWithdrawals.set(docSnap.id, docSnap.data());
+    });
+  }
+
+  if (walletNumber) {
+    const wQuery2 = query(withdrawalsRef, where("submittedBy", "==", walletNumber));
+    const wSnap2 = await getDocs(wQuery2);
+    wSnap2.forEach(docSnap => {
+      uniqueWithdrawals.set(docSnap.id, docSnap.data());
+    });
+  }
+
+  const withdrawals = Array.from(uniqueWithdrawals.values());
+
   const approvedWithdrawn = withdrawals
-    .filter(w => w.submittedBy === walletNumber && w.status === "approved")
+    .filter(w => w.status === "approved")
     .reduce((sum, current) => sum + current.amount, 0);
 
   const pendingWithdrawn = withdrawals
-    .filter(w => w.submittedBy === walletNumber && w.status === "pending")
+    .filter(w => w.status === "pending")
     .reduce((sum, current) => sum + current.amount, 0);
 
   const balance = totalEarned - approvedWithdrawn;
@@ -198,7 +236,7 @@ async function cleanUpInstagramMessages(bot: TelegramBot, chatId: number, state:
 // --- View Renderers with Bottom Keyboard Markup ---
 async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   const text = `🏠 <b>মেইন মেনু (Main Menu)</b>\n\n` +
-               `👤 <b>প্রোফাইল:</b> <code>${profile.walletNumber}</code> (${profile.walletType})\n` +
+               `👤 <b>ইউজার আইডি:</b> <code>${chatId}</code>\n` +
                `✨ নিচে দেওয়া অপশনগুলো ব্যবহার করে কাজ করুন:`;
   
   await bot.sendMessage(chatId, text, {
@@ -213,9 +251,6 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
         [
           { text: "💰 ব্যালেন্স চেক" },
           { text: "💸 ব্যালেন্স উত্তোলন" }
-        ],
-        [
-          { text: "⚙️ ওয়ালেট সেটিংস" }
         ]
       ],
       resize_keyboard: true,
@@ -225,12 +260,25 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
 }
 
 // --- Force Join Helpers ---
+const membershipCache = new Map<number, { isMember: boolean; timestamp: number }>();
+const CACHE_TTL_MS = 120000; // 2 minutes cache TTL
+
 async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ success: boolean; isMember: boolean; error?: string }> {
+  const cached = membershipCache.get(chatId);
+  const now = Date.now();
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS) && cached.isMember) {
+    return { success: true, isMember: true };
+  }
+
   try {
     console.log("Checking membership for chat ID (as user_id):", chatId);
     const member = await bot.getChatMember("@accounttradecenterXincome", chatId);
     const validStatuses = ["creator", "administrator", "member", "restricted"];
-    return { success: true, isMember: validStatuses.includes(member.status) };
+    const isMember = validStatuses.includes(member.status);
+    
+    // Cache the successful member status
+    membershipCache.set(chatId, { isMember, timestamp: now });
+    return { success: true, isMember };
   } catch (err: any) {
     console.error("Error verifying group membership for chat:", chatId, err?.message || err);
     return { success: false, isMember: false, error: err?.message || String(err) };
@@ -383,29 +431,46 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       let customPrefix = "";
       let customDailyPassword = "";
+      let isWorkActive = true;
       try {
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
           const sData = settingsSnap.data();
           customPrefix = sData.usernamePrefix || "";
           customDailyPassword = sData.dailyPassword || "";
+          if (sData.instagramWorkActive === false) {
+            isWorkActive = false;
+          }
         }
       } catch (e) {
         console.warn("Error loading settings in bot command:", e);
       }
 
+      if (!isWorkActive) {
+        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+              [
+                { text: "✨ New Insta Username Generator" },
+                { text: "🔑 Two Factor Authenticator" }
+              ],
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }]
+            ],
+            resize_keyboard: true
+          }
+        });
+        return;
+      }
+
       const creds = generateInstagramCreds(customPrefix, customDailyPassword);
       
-      const credsMsg = await bot.sendMessage(chatId, `🔑 <b>ইনস্টাগ্রাম টু-এফএ নতুন কাজের অ্যাকাউন্ট:</b>\n\n` +
-                                     `👤 <b>Username:</b> <code>${creds.username}</code>\n` +
-                                     `🔑 <b>Password:</b> <code>${creds.password}</code>\n\n` +
-                                     `<i>১. প্রথমে এই ইউজারনেম ও পাসওয়ার্ড দিয়ে ইনস্টাগ্রাম অ্যাপে গিয়ে সাইন-আপ/নতুন অ্যাকাউন্ট তৈরি করুন।\n` +
-                                     `২. অ্যাকাউন্ট তৈরি করার সময় অবশ্যই Two-Factor Authentication (2FA) চালু করবেন।\n` +
-                                     `৩. 2FA সিক্রেট কিটি পাওয়ার পর নিচের বাটনটিতে ক্লিক করে কোড নিন।</i>`, {
+      const credsMsg = await bot.sendMessage(chatId, `🔑 <b>নতুন কাজের অ্যাকাউন্ট:</b>\n\n👤 <b>Username:</b> <code>${creds.username}</code>\n🔑 <b>Password:</b> <code>${creds.password}</code>\n\n<i>(এই ইউজারনেম ও পাসওয়ার্ড দিয়ে ইনস্টাগ্রাম অ্যাপে অ্যাকাউন্ট খুলে Two-Factor (2FA) চালু করুন)</i>`, {
         parse_mode: "HTML"
       });
 
-      const promptMsg = await bot.sendMessage(chatId, `🛡️ অ্যাকাউন্ট তৈরি শুরু হয়েছে। টু-এফএ সেট করতে নিচের বাটনে ক্লিক করুন অথবা যেকোনো সময় বাতিল করুন:`, {
+      const promptMsg = await bot.sendMessage(chatId, `🛡️ ইনস্টাগ্রামে 2FA চালু করার পর নিচে ক্লিক করে কোড নিন বা বাতিল করুন:`, {
         reply_markup: {
           keyboard: [
             [{ text: "🛡️ টু-এফএ সেট করুন" }],
@@ -430,9 +495,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (text === "✨ New Insta Username Generator") {
       const generatedUsername = generatePrefixlessUsername();
       await bot.sendMessage(chatId, 
-        `✨ <b>নতুন ইনস্টাগ্রাম ইউজারনেম (Insta Username):</b>\n\n` +
+        `✨ <b>নতুন জেনারেট করা ইউজারনেম:</b>\n\n` +
         `👤 <code>${generatedUsername}</code>\n\n` +
-        `<i>(ইউজারনেমের ওপরে ট্যাপ করলে এটি কপি হয়ে যাবে। এটি কোনো প্রিফিক্স ছাড়া সম্পূর্ণ নতুন একটি নাম)</i>`, 
+        `<i>(ইউজারনেমটির ওপর ক্লিক করলে কপি হয়ে যাবে)</i>`, 
         {
           parse_mode: "HTML",
           reply_markup: {
@@ -456,9 +521,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     if (text === "🔑 Two Factor Authenticator") {
       await bot.sendMessage(chatId, 
-        `🔑 <b>টু-ফ্যাক্টর অথেনটিকেটর (2FA Authenticator)</b>\n\n` +
-        `অনুগ্রহ করে আপনার ২-ফ্যাক্টর কি <b>(2FA Secret Key)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:\n\n` +
-        `<i>(আমরা আপনাকে ৬ সংখ্যার কোড জেনারেট করে দিব যা প্রতি ৩০ সেকেন্ড পর পর পরিবর্তন হয়)</i>`,
+        `🔑 <b>টু-ফ্যাক্টর অথেনটিকেটর:</b>\n\n` +
+        `অনুগ্রহ করে আপনার ২-ফ্যাক্টর সিক্রেট কি <b>(2FA Secret Key)</b> টি নিচে লিখে পাঠান:`,
         {
           parse_mode: "HTML",
           reply_markup: {
@@ -472,31 +536,19 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text === "⚙️ ওয়ালেট সেটিংস") {
-      state.step = "awaiting_wallet_number";
-      state.walletData = {};
-      userStates.set(chatId, state);
-      await bot.sendMessage(chatId, `📱 অনুগ্রহ করে আপনার সচল ১১-ডিজিটের মোবাইল ব্যাংকিং অ্যাকাউন্ট নাম্বারটি (বিকাশ/নগদ/রকেট) লিখে পাঠান:`, {
-        parse_mode: "HTML",
-        reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
-          resize_keyboard: true,
-          one_time_keyboard: true
-        }
-      });
-      return;
-    }
-
     if (text === "💰 ব্যালেন্স চেক") {
-      const stats = await getUserStats(profile.walletNumber);
-      const balanceText = `💰 <b>আপনার ওয়ালেট ব্যালেন্স তথ্য (Balance Stats):</b>\n\n` +
-                          `📱 <b>ওয়ালেট:</b> <code>${profile.walletNumber}</code> (${profile.walletType})\n` +
-                          `💵 <b>উইথড্রযোগ্য ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n\n` +
+      const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+      let balanceText = `💰 <b>আপনার ব্যালেন্স তথ্য:</b>\n\n` +
+                          `💵 <b>উত্তোলনযোগ্য ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n\n` +
                           `✅ <b>অনুমোদিত আইডি:</b> ${stats.approvedCount} টি (৳${stats.totalEarned})\n` +
                           `⏳ <b>পেন্ডিং আইডি:</b> ${stats.pendingCount} টি\n` +
                           `❌ <b>বাতিল আইডি:</b> ${stats.rejectedCount} টি\n\n` +
                           `💸 <b>মোট উইথড্র করেছেন:</b> ৳${stats.approvedWithdrawn} Taka\n` +
                           `🕒 <b>পেন্ডিং উইথড্র:</b> ৳${stats.pendingWithdrawn} Taka`;
+
+      if (stats.pendingCount > 0) {
+        balanceText += `\n\n⚠️ <b>নোট:</b> আপনার <b>${stats.pendingCount}টি</b> পেন্ডিং আইডি এডমিন রিভিউর পর এপ্রুভ হলে আপনার উইথড্রযোগ্য ব্যালেন্সে আরও ৳<b>${stats.pendingCount * stats.ratePerId}</b> Taka যোগ হবে।`;
+      }
 
       await bot.sendMessage(chatId, balanceText, {
         parse_mode: "HTML",
@@ -516,23 +568,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (text === "💸 ব্যালেন্স উত্তোলন") {
-      if (!profile.walletNumber) {
-        await bot.sendMessage(chatId, `❌ <b>আপনার ওয়ালেট সেট করা নেই!</b>\n\nউত্তোলন করার আগে অনুগ্রহ করে <b>'⚙️ ওয়ালেট সেটিংস'</b> এ গিয়ে আপনার ওয়ালেট নাম্বার সেট করুন।`, {
-          reply_markup: {
-            keyboard: [
-              [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
-              [
-                { text: "✨ New Insta Username Generator" },
-                { text: "🔑 Two Factor Authenticator" }
-              ],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }, { text: "⚙️ ওয়ালেট সেটিংস" }]
-            ],
-            resize_keyboard: true
-          }
-        });
-        return;
-      }
-      const stats = await getUserStats(profile.walletNumber);
+      const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 
       if (stats.balance <= 0) {
         await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b> আপনার পর্যাপ্ত ব্যালেন্স নেই। বর্তমানে আপনার ব্যালেন্স ৳০ Taka।`, {
@@ -551,16 +587,18 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
-      state.step = "awaiting_withdraw_amount";
+      state.step = "awaiting_withdraw_method";
+      state.withdrawData = {};
       userStates.set(chatId, state);
 
-      await bot.sendMessage(chatId, `💸 <b>টাকা উত্তোলন অনুরোধ (Withdraw Cash)</b>\n\n` +
-                                   `📱 ওয়ালেট: <code>${profile.walletNumber}</code> (${profile.walletType})\n` +
-                                   `💵 উত্তোলনযোগ্য ব্যালেন্স: ৳<b>${stats.balance}</b> Taka\n\n` +
-                                   `💰 আপনি কত টাকা তুলতে চান? অনুগ্রহ করে শুধুমাত্র সংখ্যায় পরিমাণটি লিখে পাঠান:`, {
+      await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (Withdraw)</b>\n\nকোন মাধ্যমে টাকা উত্তোলন করতে চান? অনুগ্রহ করে নিচে থেকে একটি মাধ্যম সিলেক্ট করুন:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          keyboard: [
+            [{ text: "বিকাশ (bKash)" }, { text: "নগদ (Nagad)" }],
+            [{ text: "রকেট (Rocket)" }],
+            [{ text: "🔙 মেইন মেনু" }]
+          ],
           resize_keyboard: true,
           one_time_keyboard: true
         }
@@ -605,7 +643,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         username,
         password,
         twoFactorKey,
-        submittedBy: profile.walletNumber,
+        submittedBy: profile.walletNumber || String(chatId),
+        telegramChatId: String(chatId),
         status: 'pending',
         createdAt: new Date().toISOString()
       };
@@ -633,7 +672,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
                         `🔑 <b>Password:</b> <code>${escapeHtml(password)}</code>\n` +
                         `🛡️ <b>2FA Secret:</b> <code>${escapeHtml(twoFactorKey)}</code>\n` +
                         `💵 <b>Rate:</b> ${ratePerId} Taka\n` +
-                        `👤 <b>Submitted By:</b> <code>${profile.walletNumber}</code> (Bot)\n` +
+                        `👤 <b>Submitted By:</b> <code>${profile.walletNumber || chatId}</code> (Bot)\n` +
                         `📅 <b>Time:</b> ${new Date().toLocaleString()}\n\n` +
                         ` can check in admin dashboard!`;
 
@@ -648,7 +687,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       // Cleanup generated credentials & TOTP codes to keep it secure as requested!
       await cleanUpInstagramMessages(bot, chatId, state);
 
-      await bot.sendMessage(chatId, `🎉 <b>অ্যাকাউন্ট সফলভাবে এডমিন প্যানেলে জমা হয়েছে!</b>\n\n⏳ এডমিন আইডিটি চেক করার পর আপনার ব্যালেন্সে ৳${ratePerId} Taka যোগ করে দেওয়া হবে।`);
+      await bot.sendMessage(chatId, `🎉 <b>অ্যাকাউন্ট সফলভাবে জমা হয়েছে!</b>\n\n⏳ এডমিন চেক করার পর ব্যালেন্সে ৳${ratePerId} Taka যোগ হবে।`);
       
       state.step = "main_menu";
       state.instagramData = undefined;
@@ -658,7 +697,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (text === "🛡️ টু-এফএ সেট করুন") {
-      const promptMsg = await bot.sendMessage(chatId, `🔑 অনুগ্রহ করে আপনার ইনস্টাগ্রামের <b>২-ফ্যাক্টর কি (2FA Secret Key)</b> টি নিচে টাইপ বা পেস্ট করে পাঠান:\n\n<i>(আমরা আপনাকে ৬ সংখ্যার কোড জেনারেট করে দিব)</i>`, {
+      const promptMsg = await bot.sendMessage(chatId, `🔑 অনুগ্রহ করে আপনার ইনস্টাগ্রামের <b>২-ফ্যাক্টর কি (2FA Secret Key)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
@@ -678,7 +717,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     const totpCode = generateTOTP(cleanedKey);
 
     if (totpCode === "INVALID_KEY") {
-      const errorPrompt = await bot.sendMessage(chatId, `❌ <b>ভুল ২-ফ্যাক্টর সিক্রেট কি!</b>\n\nঅনুগ্রহ করে একটি সঠিক ও সচল 2FA Secret Key দিন (স্পেস বা হাইফেন ছাড়া):`, {
+      const errorPrompt = await bot.sendMessage(chatId, `❌ <b>ভুল ২-ফ্যাক্টর সিক্রেট কি!</b> অনুগ্রহ করে একটি সঠিক ও সচল 2FA Secret Key দিন (স্পেস ছাড়া):`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
@@ -693,7 +732,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     // Key is valid, show TOTP and offer completion keyboard
-    const codeMsg = await bot.sendMessage(chatId, `🛡️ <b>আপনার ২-ফ্যাক্টর সিকিউরিটি ভেরিফিকেশন কোড:</b>\n\n🔑 <code>${totpCode}</code>\n\n<i>(এই কোডটি কপি করে ইনস্টাগ্রামে অ্যাকাউন্ট ভেরিফিকেশন সম্পন্ন করুন। কোডটি প্রতি ৩০ সেকেন্ড পর পরিবর্তন হয়)</i>`, {
+    const codeMsg = await bot.sendMessage(chatId, `🛡️ <b>আপনার ২-ফ্যাক্টর সিকিউরিটি ভেরিফিকেশন কোড:</b>\n\n🔑 <code>${totpCode}</code>\n\n<i>(কোডটি কপি করে ইনস্টাগ্রাম অ্যাপে ভেরিফিকেশন সম্পন্ন করুন। কোডটি প্রতি ৩০ সেকেন্ড পর পর পরিবর্তন হয়)</i>`, {
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
@@ -728,9 +767,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     if (totpCode === "INVALID_KEY") {
       await bot.sendMessage(chatId, 
-        `❌ <b>ভুল ২-ফ্যাক্টর সিক্রেট কি!</b>\n\n` +
-        `অনুগ্রহ করে একটি সঠিক ও সচল 2FA Secret Key দিন (স্পেস বা হাইফেন ছাড়া):\n\n` +
-        `<i>(অথবা ফিরে যেতে নিচের '🔙 মেইন মেনু' বাটনে ক্লিক করুন)</i>`, 
+        `❌ <b>ভুল ২-ফ্যাক্টর সিক্রেট কি!</b> অনুগ্রহ করে একটি সঠিক ও সচল 2FA Secret Key দিন (স্পেস ছাড়া):`, 
         {
           parse_mode: "HTML",
           reply_markup: {
@@ -744,9 +781,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     // Key is valid, show TOTP and stay in same state so they can generate codes again or go back
     await bot.sendMessage(chatId, 
-      `🛡️ <b>আপনার ২-ফ্যাক্টর ভেরিফিকেশন কোড:</b>\n\n` +
-      `🔑 <code>${totpCode}</code>\n\n` +
-      `<i>(কোডটি কপি করতে কোডের ওপর ক্লিক করুন। এটি প্রতি ৩০ সেকেন্ড পর পর পরিবর্তন হয়)</i>`, 
+      `🛡️ <b>আপনার ২-ফ্যাক্টর সিকিউরিটি ভেরিফিকেশন কোড:</b>\n\n🔑 <code>${totpCode}</code>\n\n<i>(কোডটি কপি করতে কোডের ওপর ক্লিক করুন। এটি প্রতি ৩০ সেকেন্ড পর পর পরিবর্তন হয়)</i>`, 
       {
         parse_mode: "HTML",
         reply_markup: {
@@ -761,63 +796,26 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     return;
   }
 
-  // --- Step: Awaiting Wallet Number ---
-  if (state.step === "awaiting_wallet_number") {
+  // --- Step: Awaiting Withdraw Method ---
+  if (state.step === "awaiting_withdraw_method") {
     if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
       state.step = "main_menu";
-      state.walletData = undefined;
-      userStates.set(chatId, state);
-      await showMainMenu(bot, chatId, profile);
-      return;
-    }
-    const walletNum = text.replace(/\D/g, "");
-    if (walletNum.length !== 11 || !walletNum.startsWith("01")) {
-      await bot.sendMessage(chatId, `❌ <b>ভুল নাম্বার!</b> অনুগ্রহ করে একটি সঠিক ১১ ডিজিটের মোবাইল নাম্বার প্রদান করুন (যেমন: 017XXXXXXXX):`, {
-        reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
-          resize_keyboard: true
-        }
-      });
-      return;
-    }
-    state.walletData = { ...state.walletData, number: walletNum };
-    state.step = "awaiting_wallet_type";
-    userStates.set(chatId, state);
-    await bot.sendMessage(chatId, `📱 <b>নাম্বার সেট হয়েছে:</b> <code>${walletNum}</code>\n\n🏦 এবার আপনার মোবাইল ব্যাংকিং ওয়ালেটের ধরণ সিলেক্ট করুন:`, {
-      parse_mode: "HTML",
-      reply_markup: {
-        keyboard: [
-          [{ text: "বিকাশ (bKash)" }, { text: "নগদ (Nagad)" }],
-          [{ text: "রকেট (Rocket)" }],
-          [{ text: "🔙 মেইন মেনু" }]
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: true
-      }
-    });
-    return;
-  }
-
-  // --- Step: Awaiting Wallet Type ---
-  if (state.step === "awaiting_wallet_type") {
-    if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
-      state.step = "main_menu";
-      state.walletData = undefined;
+      state.withdrawData = undefined;
       userStates.set(chatId, state);
       await showMainMenu(bot, chatId, profile);
       return;
     }
 
-    let selectedType: 'bKash' | 'Nagad' | 'Rocket' | null = null;
+    let selectedMethod: 'bKash' | 'Nagad' | 'Rocket' | null = null;
     if (text.includes("bKash") || text.includes("বিকাশ")) {
-      selectedType = 'bKash';
+      selectedMethod = 'bKash';
     } else if (text.includes("Nagad") || text.includes("নগদ")) {
-      selectedType = 'Nagad';
+      selectedMethod = 'Nagad';
     } else if (text.includes("Rocket") || text.includes("রকেট")) {
-      selectedType = 'Rocket';
+      selectedMethod = 'Rocket';
     }
 
-    if (!selectedType) {
+    if (!selectedMethod) {
       await bot.sendMessage(chatId, `❌ অনুগ্রহ করে নিচের কীবোর্ড থেকে সঠিক ওয়ালেট ধরণটি বেছে নিন:`, {
         reply_markup: {
           keyboard: [
@@ -831,43 +829,34 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    // Update profile in DB
-    const profilesRef = collection(db, "profiles");
-    const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-        await updateDoc(querySnapshot.docs[0].ref, {
-            walletNumber: state.walletData?.number || "",
-            walletType: selectedType
-        });
-    }
-
-    state.step = "main_menu";
-    state.walletData = undefined;
+    state.withdrawData = { method: selectedMethod };
+    state.step = "awaiting_withdraw_number";
     userStates.set(chatId, state);
-    
-    // Refresh profile to show new data
-    const newSnapshot = await getDocs(q);
-    const updatedProfile = newSnapshot.docs[0].data();
-    
-    await bot.sendMessage(chatId, `✅ <b>ওয়ালেট সেটিংস সফলভাবে সম্পন্ন হয়েছে!</b>`);
-    await showMainMenu(bot, chatId, updatedProfile);
+
+    await bot.sendMessage(chatId, `🏦 আপনি <b>${selectedMethod}</b> সিলেক্ট করেছেন।\n\n📱 অনুগ্রহ করে আপনার সচল ১১-ডিজিটের <b>${selectedMethod}</b> অ্যাকাউন্ট নাম্বারটি লিখে পাঠান:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
     return;
   }
 
-  // --- 8. Step: Awaiting Withdraw Amount ---
-  if (state.step === "awaiting_withdraw_amount") {
+  // --- Step: Awaiting Withdraw Number ---
+  if (state.step === "awaiting_withdraw_number") {
     if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
       state.step = "main_menu";
-      state.instagramData = undefined;
+      state.withdrawData = undefined;
       userStates.set(chatId, state);
       await showMainMenu(bot, chatId, profile);
       return;
     }
 
-    const amount = parseFloat(text.replace(/\D/g, ""));
-    if (isNaN(amount) || amount <= 0) {
-      await bot.sendMessage(chatId, `❌ <b>ভুল পরিমাণ!</b> অনুগ্রহ করে শুধুমাত্র সংখ্যায় সঠিক পরিমাণটি লিখুন (যেমন: ৫০০):`, {
+    const walletNum = text.replace(/\D/g, "");
+    if (walletNum.length !== 11 || !walletNum.startsWith("01")) {
+      await bot.sendMessage(chatId, `❌ <b>ভুল নাম্বার!</b> সঠিক ১১ ডিজিটের মোবাইল ব্যাংকিং নাম্বারটি লিখে পাঠান (যেমন: 017XXXXXXXX):`, {
         reply_markup: {
           keyboard: [[{ text: "🔙 মেইন মেনু" }]],
           resize_keyboard: true
@@ -876,10 +865,50 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    const stats = await getUserStats(profile.walletNumber);
+    state.withdrawData = { ...state.withdrawData, number: walletNum };
+    state.step = "awaiting_withdraw_amount";
+    userStates.set(chatId, state);
+
+    const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+
+    await bot.sendMessage(chatId, `📱 <b>নাম্বার সেট হয়েছে:</b> <code>${walletNum}</code> (${state.withdrawData.method})\n` +
+                                 `💵 <b>উত্তোলনযোগ্য ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n\n` +
+                                 `💰 আপনি কত টাকা উত্তোলন করতে চান? অনুগ্রহ করে শুধুমাত্র সংখ্যায় পরিমাণটি লিখে পাঠান (যেমন: ৫০০):`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
+    return;
+  }
+
+  // --- Step: Awaiting Withdraw Amount ---
+  if (state.step === "awaiting_withdraw_amount") {
+    if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.withdrawData = undefined;
+      userStates.set(chatId, state);
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    const amount = parseFloat(text.replace(/\D/g, ""));
+    if (isNaN(amount) || amount <= 0) {
+      await bot.sendMessage(chatId, `❌ <b>ভুল পরিমাণ!</b> শুধুমাত্র সংখ্যায় পরিমাণটি লিখুন (যেমন: ৫০০):`, {
+        reply_markup: {
+          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 
     if (amount > stats.balance) {
-      await bot.sendMessage(chatId, `❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nআপনার বর্তমান উইথড্রযোগ্য ব্যালেন্স: ৳${stats.balance} Taka। আপনি ৳${amount} উইথড্র করার চেষ্টা করছেন।`, {
+      await bot.sendMessage(chatId, `❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nউইথড্রযোগ্য ব্যালেন্স: ৳${stats.balance} Taka`, {
         reply_markup: {
           keyboard: [[{ text: "🔙 মেইন মেনু" }]],
           resize_keyboard: true
@@ -889,21 +918,25 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     // Save withdrawal
+    const method = state.withdrawData?.method || 'bKash';
+    const num = state.withdrawData?.number || '';
     const newW = {
-      method: profile.walletType,
-      number: profile.walletNumber,
+      method: method,
+      number: num,
       amount: amount,
       status: 'pending',
       createdAt: new Date().toISOString(),
-      submittedBy: profile.walletNumber
+      submittedBy: num,
+      telegramChatId: String(chatId)
     };
 
     await addDoc(collection(db, "withdrawals"), newW);
 
     // Notify Admin via Telegram
     const adminText = `💸 <b>নতুন পেমেন্ট উইথড্র অনুরোধ (Bot)</b> 💸\n\n` +
-                      `👤 <b>ইউজার:</b> <code>${profile.walletNumber}</code>\n` +
-                      `🏦 <b>মাধ্যম:</b> ${profile.walletType}\n` +
+                      `👤 <b>ইউজার চ্যাট আইডি:</b> <code>${chatId}</code>\n` +
+                      `🏦 <b>মাধ্যম:</b> ${method}\n` +
+                      `📱 <b>অ্যাকাউন্ট:</b> <code>${num}</code>\n` +
                       `💵 <b>পরিমাণ:</b> ৳${amount} Taka\n` +
                       `📅 <b>সময়:</b> ${new Date().toLocaleString()}\n\n` +
                       `চেক করুন এবং অনুমোদন করুন!`;
@@ -921,9 +954,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       }
     }
 
-    await bot.sendMessage(chatId, `✅ <b>উত্তোলন অনুরোধ সফলভাবে জমা হয়েছে!</b>\n\n💵 পরিমাণ: ৳<b>${amount}</b> Taka\n🏦 ওয়ালেট: <code>${profile.walletNumber}</code> (${profile.walletType})\n\n⏳ এডমিন কিছুক্ষণের মধ্যে চেক করে পেমেন্ট সম্পূর্ণ করে দেবেন। ধন্যবাদ!`);
+    await bot.sendMessage(chatId, `✅ <b>উত্তোলন অনুরোধ সফলভাবে জমা হয়েছে!</b>\n\n💵 পরিমাণ: ৳<b>${amount}</b> Taka\n🏦 ওয়ালেট: <code>${num}</code> (${method})\n\n⏳ এডমিন কিছুক্ষণের মধ্যে চেক করে পেমেন্ট সম্পূর্ণ করে দেবেন। ধন্যবাদ!`);
     
     state.step = "main_menu";
+    state.withdrawData = undefined;
     userStates.set(chatId, state);
     await showMainMenu(bot, chatId, profile);
     return;
@@ -944,6 +978,8 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
 
   // Handle Force Join Verification
   if (data === "verify_join") {
+    // Clear cache entry to ensure a fresh live verification check
+    membershipCache.delete(chatId);
     const membership = await isUserMemberOfGroup(bot, chatId);
     if (membership.isMember) {
       await bot.sendMessage(chatId, `🎉 <b>ধন্যবাদ! ভেরিফিকেশন সফল হয়েছে।</b>\n\nএখন আপনি বটটি ব্যবহার করতে পারবেন।`);
@@ -1042,6 +1078,15 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
 let currentBot: TelegramBot | null = null;
 let currentBotToken: string | null = null;
 
+export function handleWebhookUpdate(update: any) {
+  console.log("Received Webhook Update:", JSON.stringify(update));
+  if (currentBot) {
+    currentBot.processUpdate(update);
+  } else {
+    console.error("currentBot is null when receiving webhook update");
+  }
+}
+
 export async function syncTelegramBot() {
   try {
     const settingsRef = doc(db, "settings", "global");
@@ -1057,9 +1102,11 @@ export async function syncTelegramBot() {
 
     // Token changed or bot is not started yet
     if (currentBot) {
-      console.log("Stopping previous Telegram Bot polling...");
+      console.log("Stopping previous Telegram Bot...");
       try {
-        await currentBot.stopPolling();
+        if (currentBot.isPolling()) {
+          await currentBot.stopPolling();
+        }
       } catch (err) {
         console.error("Error stopping polling:", err);
       }
@@ -1075,8 +1122,18 @@ export async function syncTelegramBot() {
 
     console.log(`Starting Telegram Bot with token: ${token.substring(0, 6)}...`);
     
-    // Initialize bot
-    const bot = new TelegramBot(token, { polling: true });
+    // Initialize bot with polling: false to cleanly delete webhook first
+    const bot = new TelegramBot(token, { polling: false });
+    
+    try {
+      console.log("Deleting any active Telegram Webhook to enable fast polling...");
+      await bot.deleteWebHook();
+    } catch (whErr) {
+      console.error("Error deleting webhook:", whErr);
+    }
+
+    // Start polling cleanly
+    await bot.startPolling();
     currentBot = bot;
 
     // Handle incoming messages
@@ -1113,9 +1170,9 @@ export async function syncTelegramBot() {
 }
 
 // Automatically sync periodically
-export function initTelegramBot() {
+export async function initTelegramBot() {
   // Sync immediately
-  syncTelegramBot();
+  await syncTelegramBot();
   // Sync every 30 seconds
   setInterval(syncTelegramBot, 30000);
 }

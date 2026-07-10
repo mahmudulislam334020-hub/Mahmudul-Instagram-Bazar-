@@ -251,12 +251,12 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
       keyboard: [
         [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
         [
-          { text: "✨ New Insta Username Generator" },
-          { text: "🔑 Two Factor Authenticator" }
-        ],
-        [
           { text: "💰 ব্যালেন্স চেক" },
           { text: "💸 ব্যালেন্স উত্তোলন" }
+        ],
+        [
+          { text: "✨ New Insta Username Generator" },
+          { text: "🔑 Two Factor Authenticator" }
         ]
       ],
       resize_keyboard: true,
@@ -1083,6 +1083,7 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
 
 let currentBot: TelegramBot | null = null;
 let currentBotToken: string | null = null;
+let loggedDevWarning = false;
 
 export function handleWebhookUpdate(update: any) {
   console.log("Received Webhook Update:", JSON.stringify(update));
@@ -1095,6 +1096,34 @@ export function handleWebhookUpdate(update: any) {
 
 export async function syncTelegramBot() {
   try {
+    const isAIStudio = process.env.APP_URL && (
+      process.env.APP_URL.includes("ais-dev-") || 
+      process.env.APP_URL.includes("ais-pre-") || 
+      process.env.APP_URL.includes("run.app")
+    );
+    const enableDevBot = process.env.ENABLE_DEV_BOT === "true";
+
+    if (isAIStudio && !enableDevBot) {
+      if (currentBot) {
+        console.log("Stopping active Telegram Bot in AI Studio environment to prevent 409 Conflict...");
+        try {
+          if (currentBot.isPolling()) {
+            await currentBot.stopPolling();
+          }
+        } catch (err) {
+          console.error("Error stopping polling:", err);
+        }
+        currentBot = null;
+        currentBotToken = null;
+      }
+      if (!loggedDevWarning) {
+        console.log("⚠️ Running inside AI Studio preview environment. Polling is disabled to prevent 409 Conflict with your Render deployment.");
+        console.log("💡 If you want to enable polling in development, set the environment variable ENABLE_DEV_BOT=true.");
+        loggedDevWarning = true;
+      }
+      return;
+    }
+
     const settingsRef = doc(db, "settings", "global");
     const settingsSnap = await getDoc(settingsRef);
     if (!settingsSnap.exists()) return;

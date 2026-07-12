@@ -277,8 +277,7 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
           { text: "💸 ব্যালেন্স উত্তোলন" }
         ],
         [
-          { text: "✨ New Insta Username Generator" },
-          { text: "🔑 Two Factor Authenticator" }
+          { text: "📞 সাপোর্ট" }
         ]
       ],
       resize_keyboard: true,
@@ -575,11 +574,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           reply_markup: {
             keyboard: [
               [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
-              [
-                { text: "✨ New Insta Username Generator" },
-                { text: "🔑 Two Factor Authenticator" }
-              ],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }]
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "📞 সাপোর্ট" }]
             ],
             resize_keyboard: true
           }
@@ -615,47 +611,23 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text === "✨ New Insta Username Generator") {
-      const generatedUsername = generatePrefixlessUsername();
+    if (text === "📞 সাপোর্ট") {
       await bot.sendMessage(chatId, 
-        `✨ <b>নতুন জেনারেট করা ইউজারনেম:</b>\n\n` +
-        `👤 <code>${generatedUsername}</code>\n\n` +
-        `<i>(ইউজারনেমটির ওপর ক্লিক করলে কপি হয়ে যাবে)</i>`, 
+        `📬 <b>আমাদের সাপোর্ট টিম (Support Team):</b>\n\n` +
+        `যেকোনো সমস্যা, প্রশ্ন বা পেমেন্ট সংক্রান্ত সহায়তার জন্য আমাদের অফিশিয়াল সাপোর্ট আইডিতে যোগাযোগ করুন:\n\n` +
+        `📢 সাপোর্ট আইডি: <b>t.me/Mahmudulinstabazar</b>\n\n` +
+        `সাপোর্ট আইডিতে সরাসরি মেসেজ দিতে নিচের বাটনে ক্লিক করুন। ধন্যবাদ!`,
         {
           parse_mode: "HTML",
           reply_markup: {
-            keyboard: [
-              [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+            inline_keyboard: [
               [
-                { text: "✨ New Insta Username Generator" },
-                { text: "🔑 Two Factor Authenticator" }
-              ],
-              [
-                { text: "💰 ব্যালেন্স চেক" },
-                { text: "💸 ব্যালেন্স উত্তোলন" }
+                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Mahmudulinstabazar" }
               ]
-            ],
-            resize_keyboard: true
+            ]
           }
         }
       );
-      return;
-    }
-
-    if (text === "🔑 Two Factor Authenticator") {
-      await bot.sendMessage(chatId, 
-        `🔑 <b>টু-ফ্যাক্টর অথেনটিকেটর:</b>\n\n` +
-        `অনুগ্রহ করে আপনার ২-ফ্যাক্টর সিক্রেট কি <b>(2FA Secret Key)</b> টি নিচে লিখে পাঠান:`,
-        {
-          parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [[{ text: "🔙 মেইন মেনু" }]],
-            resize_keyboard: true
-          }
-        }
-      );
-      state.step = "awaiting_independent_2fa_key";
-      userStates.set(chatId, state);
       return;
     }
 
@@ -678,11 +650,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         reply_markup: {
           keyboard: [
             [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
-            [
-              { text: "✨ New Insta Username Generator" },
-              { text: "🔑 Two Factor Authenticator" }
-            ],
-            [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }]
+            [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+            [{ text: "📞 সাপোর্ট" }]
           ],
           resize_keyboard: true
         }
@@ -698,11 +667,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           reply_markup: {
             keyboard: [
               [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
-              [
-                { text: "✨ New Insta Username Generator" },
-                { text: "🔑 Two Factor Authenticator" }
-              ],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }]
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "📞 সাপোর্ট" }]
             ],
             resize_keyboard: true
           }
@@ -761,6 +727,45 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     const isDigits = /^\d{10,20}$/.test(cleanedUID);
     if (!isDigits) {
       await bot.sendMessage(chatId, `❌ <b>ভুল ইউ আই ডি!</b> অনুগ্রহ করে সঠিক ফেসবুক ইউ আই ডি (Facebook UID) প্রদান করুন (স্পেস ছাড়া শুধু সংখ্যা):`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    // Check if this UID is already pending (প্রিন্টিং/প্রক্রিয়াধীন অবস্থায় আছে) in the database
+    let isPending = false;
+    try {
+      const submissionsRef = collection(db, "submissions");
+      
+      // Query by uid field
+      const qUid = query(submissionsRef, where("uid", "==", cleanedUID), limit(10));
+      const snapUid = await getDocs(qUid);
+      snapUid.forEach(docSnap => {
+        if (docSnap.data().status === "pending") {
+          isPending = true;
+        }
+      });
+      
+      // Also query by username field as fallback
+      if (!isPending) {
+        const qUser = query(submissionsRef, where("username", "==", cleanedUID), limit(10));
+        const snapUser = await getDocs(qUser);
+        snapUser.forEach(docSnap => {
+          if (docSnap.data().status === "pending") {
+            isPending = true;
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Error checking duplicate pending UID:", err);
+    }
+
+    if (isPending) {
+      await bot.sendMessage(chatId, `❌ <b>এই আইডিটি সঠিক নয়!</b>\n\nএই ইউ আই ডি (UID) টি বর্তমানে প্রিন্টিং/প্রক্রিয়াধীন অবস্থায় রয়েছে। অনুগ্রহ করে সঠিক আইডি পুনরায় প্রদান করুন:`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
@@ -1090,8 +1095,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "🔑 Two Factor Authenticator" }],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: "🔙 মেইন মেনু" }],
+            [{ text: "📞 সাপোর্ট" }]
           ],
           resize_keyboard: true
         }

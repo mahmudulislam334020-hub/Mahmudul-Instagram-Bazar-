@@ -20,7 +20,8 @@ import {
   AlertCircle,
   Users,
   Database,
-  List
+  List,
+  Facebook
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -47,11 +48,19 @@ import {
   UserProfile
 } from './firebaseService';
 
+import AdminFacebook from './components/AdminFacebook';
+import AdminInstagram from './components/AdminInstagram';
+import AdminBot from './components/AdminBot';
+
 export default function App() {
   // Navigation & Role State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'instagram' | 'withdraw' | 'admin_submissions' | 'admin_withdrawals' | 'admin_settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'instagram' | 'withdraw' | 'admin_facebook' | 'admin_instagram' | 'admin_withdrawals' | 'admin_bot'>('dashboard');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Facebook and Instagram Admin sub-tab states
+  const [fbSubTab, setFbSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
+  const [igSubTab, setIgSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
 
   // Admin Login Security States
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -100,7 +109,7 @@ export default function App() {
         setIsAdmin(true);
         sessionStorage.setItem("is_admin_logged_in", "true");
         setShowLoginModal(false);
-        setActiveTab('admin_submissions');
+        setActiveTab('admin_facebook');
       } else {
         setLoginError("❌ ভুল পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।");
       }
@@ -145,7 +154,11 @@ export default function App() {
 
   // DB Data States
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [adminCategory, setAdminCategory] = useState<'instagram' | 'facebook'>('instagram');
+  
+  const adminCategory = useMemo<'instagram' | 'facebook'>(() => {
+    if (activeTab === 'admin_facebook') return 'facebook';
+    return 'instagram';
+  }, [activeTab]);
 
   const categoryFilteredSubmissions = useMemo(() => {
     return submissions.filter(sub => {
@@ -1032,17 +1045,21 @@ export default function App() {
 
             {isAdmin && (
               <div className="space-y-1 pl-1">
-                <button onClick={() => { setActiveTab('admin_submissions'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_submissions' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <Shield size={15} />
-                  <span>আইডি অনুমোদন (IDs Approval)</span>
+                <button onClick={() => { setActiveTab('admin_facebook'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_facebook' ? 'bg-blue-950/80 border border-blue-800/40 text-blue-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <Facebook size={15} className="text-blue-500" />
+                  <span>Facebook Control (ফেসবুক)</span>
+                </button>
+                <button onClick={() => { setActiveTab('admin_instagram'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_instagram' ? 'bg-pink-950/80 border border-pink-800/40 text-pink-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <Instagram size={15} className="text-pink-500" />
+                  <span>Instagram Control (ইনস্টা)</span>
                 </button>
                 <button onClick={() => { setActiveTab('admin_withdrawals'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_withdrawals' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                   <DollarSign size={15} />
                   <span>পেমেন্ট রিকোয়েস্ট (Payouts)</span>
                 </button>
-                <button onClick={() => { setActiveTab('admin_settings'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_settings' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <button onClick={() => { setActiveTab('admin_bot'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_bot' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                   <Settings size={15} />
-                  <span>টেলিগ্রাম সেটিংস (Settings)</span>
+                  <span>টেলিগ্রাম বট সেটিংস (Bot)</span>
                 </button>
               </div>
             )}
@@ -1566,597 +1583,80 @@ export default function App() {
             </div>
           )}
 
-          {/* ADMIN: SUBMISSIONS APPROVAL TAB */}
-          {activeTab === 'admin_submissions' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                <div>
-                  <h3 className="text-lg font-bold text-white">আইডি সাবমিশন ও অনুমোদন (Submissions Manager)</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    মোট {categoryFilteredSubmissions.length}টি {adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} আইডি রেকর্ড রয়েছে। অনুমোদন এবং বাল্ক অনুমোদন সিলেক্ট করুন।
-                  </p>
-                </div>
-                
-                <div className="flex flex-wrap gap-2">
-                  <button 
-                    onClick={handleExportCSV}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors border border-slate-700"
-                  >
-                    <Download size={14} />
-                    <span>এক্সেল ফাইল ডাউনলোড (CSV)</span>
-                  </button>
+          {/* ADMIN: FACEBOOK CONTROL TAB */}
+          {activeTab === 'admin_facebook' && (
+            <AdminFacebook
+              settings={settings}
+              setAppSettings={setAppSettings}
+              categoryFilteredSubmissions={categoryFilteredSubmissions}
+              categoryGroupedSubmissions={categoryGroupedSubmissions}
+              selectedSubIds={selectedSubIds}
+              setSelectedSubIds={setSelectedSubIds}
+              pastedUsernamesText={pastedUsernamesText}
+              setPastedUsernamesText={setPastedUsernamesText}
+              bulkPasteResult={bulkPasteResult}
+              handleBulkPasteAction={handleBulkPasteAction}
+              handleBulkSubAction={handleBulkSubAction}
+              handleApproveRejectSub={handleApproveRejectSub}
+              handleDeleteSub={handleDeleteSub}
+              handleExportCSV={handleExportCSV}
+              workerSearchQuery={workerSearchQuery}
+              setWorkerSearchQuery={setWorkerSearchQuery}
+              expandedWorker={expandedWorker}
+              setExpandedWorker={setExpandedWorker}
+              clearConfirmationText={clearConfirmationText}
+              setClearConfirmationText={setClearConfirmationText}
+              dbMessage={dbMessage}
+              handleClearAllSubmissions={handleClearAllSubmissions}
+              handleClearAllWithdrawals={handleClearAllWithdrawals}
+              handleClearAllProfiles={handleClearAllProfiles}
+              isClearingSubmissions={isClearingSubmissions}
+              isClearingWithdrawals={isClearingWithdrawals}
+              isClearingProfiles={isClearingProfiles}
+              handleSaveSettings={handleSaveSettings}
+              settingsStatus={settingsStatus}
+              withdrawals={withdrawals}
+              fbSubTab={fbSubTab}
+              setFbSubTab={setFbSubTab}
+            />
+          )}
 
-                  <button 
-                    onClick={() => handleBulkSubAction('approved')}
-                    disabled={selectedSubIds.length === 0}
-                    className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all"
-                  >
-                    বাল্ক অনুমোদন ({selectedSubIds.length})
-                  </button>
-
-                  <button 
-                    onClick={() => handleBulkSubAction('rejected')}
-                    disabled={selectedSubIds.length === 0}
-                    className="px-3.5 py-2 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all"
-                  >
-                    বাল্ক বাতিল ({selectedSubIds.length})
-                  </button>
-                </div>
-              </div>
-
-              {/* Category Switcher bar */}
-              <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 flex flex-col sm:flex-row gap-2 max-w-xl">
-                <button
-                  onClick={() => {
-                    setAdminCategory('instagram');
-                    setSelectedSubIds([]);
-                  }}
-                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${
-                    adminCategory === 'instagram'
-                      ? 'bg-gradient-to-r from-pink-600 to-indigo-600 border-indigo-500 text-white shadow-md'
-                      : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <Instagram size={14} />
-                  <span>Instagram Work ({submissions.filter(s => (s.category || 'instagram') === 'instagram').length})</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setAdminCategory('facebook');
-                    setSelectedSubIds([]);
-                  }}
-                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${
-                    adminCategory === 'facebook'
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 border-indigo-500 text-white shadow-md'
-                      : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <Users size={14} />
-                  <span>Facebook Work ({submissions.filter(s => s.category === 'facebook').length})</span>
-                </button>
-              </div>
-
-              {/* ADMIN SUB-TABS NAVIGATION */}
-              <div className="flex border-b border-slate-800 gap-1">
-                <button
-                  onClick={() => setAdminSubTab('all')}
-                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
-                    adminSubTab === 'all'
-                      ? 'bg-slate-900 border-slate-800 text-white border-t-indigo-500'
-                      : 'bg-transparent border-transparent text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <List size={14} />
-                  <span>সব আইডি তালিকা ({categoryFilteredSubmissions.length})</span>
-                </button>
-                <button
-                  onClick={() => setAdminSubTab('user_summary')}
-                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
-                    adminSubTab === 'user_summary'
-                      ? 'bg-slate-900 border-slate-800 text-white border-t-indigo-500'
-                      : 'bg-transparent border-transparent text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Users size={14} />
-                  <span>ইউজার ভিত্তিক সামারি ({categoryGroupedSubmissions.length})</span>
-                </button>
-                <button
-                  onClick={() => setAdminSubTab('db_control')}
-                  className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x ${
-                    adminSubTab === 'db_control'
-                      ? 'bg-slate-900 border-slate-800 text-white border-t-rose-500 font-bold text-rose-400'
-                      : 'bg-transparent border-transparent text-rose-500/70 hover:text-rose-400'
-                  }`}
-                >
-                  <Database size={14} />
-                  <span>ডাটাবেজ কন্ট্রোল ও রিসেট ⚠️</span>
-                </button>
-              </div>
-
-              {adminSubTab === 'all' && (
-                <>
-                  {/* BULK USERNAME PASTE ACTIONS */}
-                  <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                      <div>
-                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                          পেস্টিং বাল্ক একশন (Bulk Username Paste Action)
-                        </h4>
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          একসাথে অনেকগুলো ইউজারনেম কপি করে এনে এখানে পেস্ট করে সরাসরি অনুমোদন বা বাতিল করতে পারেন।
-                        </p>
-                      </div>
-                      <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded font-bold border border-indigo-500/15">অটো-টেলিগ্রাম নোটিফিকেশন ⚡</span>
-                    </div>
-
-                    <div className="space-y-3">
-                      <textarea
-                        rows={3}
-                        value={pastedUsernamesText}
-                        onChange={(e) => setPastedUsernamesText(e.target.value)}
-                        placeholder="এখানে ইউজারনেমগুলো পেস্ট করুন (যেমন: abir_khan_secure4783, tanvir_ig_insta9344 অথবা স্পেস, কমা বা নতুন লাইনে আলাদা করে লিখুন)"
-                        className="w-full bg-slate-950 border border-slate-800 p-4 rounded-xl text-slate-300 text-xs font-mono outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600 leading-relaxed"
-                      />
-
-                      {bulkPasteResult && (
-                        <div className={`p-3 rounded-xl text-xs font-medium leading-relaxed border ${
-                          bulkPasteResult.type === 'success' 
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                        }`}>
-                          {bulkPasteResult.text}
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-2 justify-end">
-                        <button
-                          type="button"
-                          onClick={() => handleBulkPasteAction('rejected')}
-                          className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                        >
-                          ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleBulkPasteAction('approved')}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                        >
-                          ✅ পেস্টকৃতগুলো অনুমোদন করুন (Bulk Approve)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Submissions list */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
-                            <th className="py-4 px-6 w-12 text-center">
-                              <input 
-                                type="checkbox"
-                                checked={selectedSubIds.length === categoryFilteredSubmissions.length && categoryFilteredSubmissions.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedSubIds(categoryFilteredSubmissions.map(s => s.id || '').filter(Boolean));
-                                  } else {
-                                    setSelectedSubIds([]);
-                                  }
-                                }}
-                                className="rounded accent-indigo-600"
-                              />
-                            </th>
-                            {adminCategory === 'facebook' ? (
-                              <>
-                                <th className="py-4 px-4">UID (Username)</th>
-                                <th className="py-4 px-4">Password</th>
-                                <th className="py-4 px-4">Name</th>
-                                <th className="py-4 px-4">Cookie</th>
-                              </>
-                            ) : (
-                              <>
-                                <th className="py-4 px-4">Username</th>
-                                <th className="py-4 px-4">Password</th>
-                                <th className="py-4 px-4">2FA Key</th>
-                              </>
-                            )}
-                            <th className="py-4 px-4">Worker</th>
-                            <th className="py-4 px-4">Submitted At</th>
-                            <th className="py-4 px-4 text-center">Status</th>
-                            <th className="py-4 px-4 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                          {categoryFilteredSubmissions.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="py-10 text-center text-slate-500 text-sm">কোনো আইডি এখনও জমা দেওয়া হয়নি।</td>
-                            </tr>
-                          ) : (
-                            categoryFilteredSubmissions.map((sub, index) => (
-                              <tr key={sub.id || index} className="hover:bg-slate-950/40 transition-colors">
-                                <td className="py-4 px-6 text-center">
-                                  <input 
-                                    type="checkbox"
-                                    checked={selectedSubIds.includes(sub.id || '')}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setSelectedSubIds(prev => [...prev, sub.id || '']);
-                                      } else {
-                                        setSelectedSubIds(prev => prev.filter(id => id !== sub.id));
-                                      }
-                                    }}
-                                    className="rounded accent-indigo-600"
-                                  />
-                                </td>
-                                {adminCategory === 'facebook' ? (
-                                  <>
-                                    <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
-                                    <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
-                                    <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.firstName || ""} {sub.lastName || ""}</td>
-                                    <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.cookie}>
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="truncate max-w-[100px]">{sub.cookie}</span>
-                                        <button
-                                          onClick={() => {
-                                            navigator.clipboard.writeText(sub.cookie || "");
-                                            alert("Cookie copied to clipboard!");
-                                          }}
-                                          className="text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700 font-bold flex-shrink-0"
-                                        >
-                                          Copy
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </>
-                                ) : (
-                                  <>
-                                    <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
-                                    <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
-                                    <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
-                                  </>
-                                )}
-                                <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.submittedBy}</td>
-                                <td className="py-4 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
-                                <td className="py-4 px-4 text-center">
-                                  <span className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${
-                                    sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                                    sub.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
-                                    'bg-amber-500/10 text-amber-500'
-                                  }`}>
-                                    {sub.status}
-                                  </span>
-                                </td>
-                                <td className="py-4 px-4 text-right">
-                                  {sub.status === 'pending' ? (
-                                    <div className="flex gap-1.5 justify-end">
-                                      <button 
-                                        onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
-                                        className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors"
-                                        title="Approve"
-                                      >
-                                        ✓
-                                      </button>
-                                      <button 
-                                        onClick={() => handleApproveRejectSub(sub.id || '', 'rejected')}
-                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg transition-colors"
-                                        title="Reject"
-                                      >
-                                        ✕
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteSub(sub.id || '')}
-                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                        title="Delete"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex gap-2 justify-end items-center">
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                                        sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                                      }`}>
-                                        {sub.status === 'approved' ? 'Approved' : 'Rejected'}
-                                      </span>
-                                      <button 
-                                        onClick={() => handleDeleteSub(sub.id || '')}
-                                        className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                        title="Delete"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {adminSubTab === 'user_summary' && (
-                <div className="space-y-6 animate-fade-in">
-                  {/* Search Bar */}
-                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col sm:flex-row items-center gap-3">
-                    <div className="relative flex-1 w-full">
-                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
-                        <Users size={15} />
-                      </span>
-                      <input
-                        type="text"
-                        placeholder="ইউজার (ওয়ালেট নাম্বার) অথবা আইডি দিয়ে সার্চ করুন..."
-                        value={workerSearchQuery}
-                        onChange={(e) => setWorkerSearchQuery(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-lg text-slate-300 text-xs outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
-                      />
-                    </div>
-                    {workerSearchQuery && (
-                      <button
-                        onClick={() => setWorkerSearchQuery('')}
-                        className="text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20"
-                      >
-                        ক্লিয়ার করুন
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Grouped list */}
-                  <div className="grid grid-cols-1 gap-4">
-                    {(() => {
-                      const query = workerSearchQuery.toLowerCase().trim();
-                      const filteredGroups = groupedSubmissions.filter(g => {
-                        if (!query) return true;
-                        // Match worker name
-                        if (g.worker.toLowerCase().includes(query)) return true;
-                        // Match any of their submission IDs
-                        return g.submissions.some(sub => 
-                          sub.username.toLowerCase().includes(query) ||
-                          sub.password.toLowerCase().includes(query) ||
-                          sub.twoFactorKey.toLowerCase().includes(query)
-                        );
-                      });
-
-                      if (filteredGroups.length === 0) {
-                        return (
-                          <div className="bg-slate-900 border border-slate-800 rounded-2xl py-12 text-center text-slate-500 text-sm">
-                            কোনো তথ্য পাওয়া যায়নি।
-                          </div>
-                        );
-                      }
-
-                      return filteredGroups.map((group) => {
-                        const isExpanded = expandedWorker === group.worker;
-                        return (
-                          <div key={group.worker} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden transition-all">
-                            {/* Header row */}
-                            <div 
-                              onClick={() => setExpandedWorker(isExpanded ? null : group.worker)}
-                              className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-950/20 cursor-pointer transition-colors"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 text-indigo-400">
-                                  <User size={18} />
-                                </div>
-                                <div>
-                                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                                    {group.worker}
-                                    <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full font-bold border border-indigo-500/15">Worker</span>
-                                  </h4>
-                                  <p className="text-[10.5px] text-slate-400 mt-1">
-                                    মোট আইডি সাবমিট করেছেন: <strong className="text-white">{group.total} টি</strong>
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[10px] font-bold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/15">
-                                  Approved: {group.approved}
-                                </span>
-                                <span className="text-[10px] font-bold px-2.5 py-1 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/15">
-                                  Pending: {group.pending}
-                                </span>
-                                <span className="text-[10px] font-bold px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded-full border border-rose-500/15">
-                                  Rejected: {group.rejected}
-                                </span>
-                                <div className="text-slate-400 ml-2">
-                                  {isExpanded ? '▲' : '▼'}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Expandable IDs list */}
-                            {isExpanded && (
-                              <div className="border-t border-slate-800/80 bg-slate-950/40 p-5 space-y-3">
-                                <h5 className="text-xs font-bold text-slate-300">সাবমিটকৃত আইডি সমূহের তালিকা:</h5>
-                                <div className="overflow-x-auto rounded-xl border border-slate-800">
-                                  <table className="w-full text-left border-collapse">
-                                    <thead>
-                                      <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                        <th className="py-3 px-4">Username</th>
-                                        <th className="py-3 px-4">Password</th>
-                                        <th className="py-3 px-4">2FA Key</th>
-                                        <th className="py-3 px-4">Submitted At</th>
-                                        <th className="py-3 px-4 text-center">Status</th>
-                                        <th className="py-3 px-4 text-right">Actions</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-800/60">
-                                      {group.submissions.map((sub, idx) => (
-                                        <tr key={sub.id || idx} className="hover:bg-slate-950/20 transition-colors">
-                                          <td className="py-3.5 px-4 font-mono text-xs text-white max-w-[130px] truncate" title={sub.username}>{sub.username}</td>
-                                          <td className="py-3.5 px-4 font-mono text-xs text-slate-400 max-w-[130px] truncate" title={sub.password}>{sub.password}</td>
-                                          <td className="py-3.5 px-4 font-mono text-xs text-indigo-400 max-w-[150px] truncate" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
-                                          <td className="py-3.5 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
-                                          <td className="py-3.5 px-4 text-center">
-                                            <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${
-                                              sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                                              sub.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
-                                              'bg-amber-500/10 text-amber-500'
-                                            }`}>
-                                              {sub.status}
-                                            </span>
-                                          </td>
-                                          <td className="py-3.5 px-4 text-right">
-                                            {sub.status === 'pending' ? (
-                                              <div className="flex gap-1.5 justify-end">
-                                                <button 
-                                                  onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
-                                                  className="w-7 h-7 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg text-xs transition-colors"
-                                                  title="Approve"
-                                                >
-                                                  ✓
-                                                </button>
-                                                <button 
-                                                  onClick={() => handleApproveRejectSub(sub.id || '', 'rejected')}
-                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white rounded-lg text-xs transition-colors"
-                                                  title="Reject"
-                                                >
-                                                  ✕
-                                                </button>
-                                                <button 
-                                                  onClick={() => handleDeleteSub(sub.id || '')}
-                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                                  title="Delete"
-                                                >
-                                                  <Trash2 size={12} />
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <div className="flex gap-2 justify-end items-center">
-                                                <button 
-                                                  onClick={() => handleDeleteSub(sub.id || '')}
-                                                  className="w-7 h-7 flex items-center justify-center bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-600 hover:text-white rounded-lg transition-colors"
-                                                  title="Delete"
-                                                >
-                                                  <Trash2 size={12} />
-                                                </button>
-                                              </div>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {adminSubTab === 'db_control' && (
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6 animate-fade-in">
-                  {/* Warning Header */}
-                  <div className="bg-rose-500/10 border border-rose-500/20 p-5 rounded-xl flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 shrink-0">
-                      <AlertCircle size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">বিপজ্জনক অঞ্চল (Danger Zone) — ডাটা রিসেট ও ডাটাবেজ ক্লিয়ারিং</h4>
-                      <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                        এখানে থাকা অপশনগুলো ব্যবহার করে ডাটাবেজের সকল রেকর্ড চিরতরে মুছে ফেলা সম্ভব। এই অ্যাকশন সম্পূর্ণ অপরিবর্তনশীল (Irreversible) এবং কোনো ব্যাকআপ রিকভারি সম্ভব নয়। অনুগ্রহ করে সতর্কতার সাথে সিদ্ধান্ত নিন।
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Feedback Message */}
-                  {dbMessage && (
-                    <div className={`p-4 rounded-xl text-xs font-semibold border ${
-                      dbMessage.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                    }`}>
-                      {dbMessage.text}
-                    </div>
-                  )}
-
-                  {/* Safety input lock */}
-                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800/80 space-y-3">
-                    <label className="text-xs font-bold text-slate-300 block">
-                      নিশ্চিত করতে নিচে ইংরেজি বড় হাতের অক্ষরে <strong className="text-rose-400 font-mono">"CONFIRM"</strong> লিখুন:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="CONFIRM"
-                      value={clearConfirmationText}
-                      onChange={(e) => setClearConfirmationText(e.target.value)}
-                      className="w-full max-w-xs bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-200 text-sm font-bold uppercase tracking-wider outline-none focus:border-rose-500 transition-all placeholder:text-slate-700"
-                    />
-                  </div>
-
-                  {/* Danger operations actions */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                    {/* Clear Submissions Card */}
-                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
-                      <div>
-                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          {adminCategory === 'facebook' ? 'ফেসবুক সাবমিশন ক্লিয়ার' : 'ইনস্টাগ্রাম সাবমিশন ক্লিয়ার'}
-                        </h5>
-                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                          ডাটাবেজের সকল {adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} আইডি সাবমিশন রেকর্ড (মোট {categoryFilteredSubmissions.length}টি) মুছে ফেলে সম্পূর্ণ শূন্য করে দেওয়া হবে।
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearAllSubmissions}
-                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingSubmissions}
-                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
-                      >
-                        {isClearingSubmissions ? 'মুছে ফেলা হচ্ছে...' : `সব ${adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} সাবমিশন মুছুন ❌`}
-                      </button>
-                    </div>
-
-                    {/* Clear Withdrawals Card */}
-                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
-                      <div>
-                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          উইথড্রয়াল ক্লিয়ার
-                        </h5>
-                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                          ডাটাবেজের সকল প্রকার পেমেন্ট উইথড্রয়াল হিস্ট্রি (মোট {withdrawals.length}টি) মুছে ফেলা হবে।
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearAllWithdrawals}
-                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingWithdrawals}
-                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
-                      >
-                        {isClearingWithdrawals ? 'মুছে ফেলা হচ্ছে...' : 'সব উইথড্রয়াল মুছুন ❌'}
-                      </button>
-                    </div>
-
-                    {/* Clear User Profiles Card */}
-                    <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-xl flex flex-col justify-between gap-4">
-                      <div>
-                        <h5 className="text-xs font-bold text-white flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          ইউজার প্রোফাইল ক্লিয়ার
-                        </h5>
-                        <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                          ডাটাবেজে নিবন্ধিত সকল ওয়ার্কার বা ব্যবহারকারী প্রোফাইল সম্পূর্ণ ডিলিট বা রিসেট করে দেওয়া হবে।
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearAllProfiles}
-                        disabled={clearConfirmationText !== 'CONFIRM' || isClearingProfiles}
-                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
-                      >
-                        {isClearingProfiles ? 'মুছে ফেলা হচ্ছে...' : 'সব ইউজার প্রোফাইল মুছুন ❌'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* ADMIN: INSTAGRAM CONTROL TAB */}
+          {activeTab === 'admin_instagram' && (
+            <AdminInstagram
+              settings={settings}
+              setAppSettings={setAppSettings}
+              categoryFilteredSubmissions={categoryFilteredSubmissions}
+              categoryGroupedSubmissions={categoryGroupedSubmissions}
+              selectedSubIds={selectedSubIds}
+              setSelectedSubIds={setSelectedSubIds}
+              pastedUsernamesText={pastedUsernamesText}
+              setPastedUsernamesText={setPastedUsernamesText}
+              bulkPasteResult={bulkPasteResult}
+              handleBulkPasteAction={handleBulkPasteAction}
+              handleBulkSubAction={handleBulkSubAction}
+              handleApproveRejectSub={handleApproveRejectSub}
+              handleDeleteSub={handleDeleteSub}
+              handleExportCSV={handleExportCSV}
+              workerSearchQuery={workerSearchQuery}
+              setWorkerSearchQuery={setWorkerSearchQuery}
+              expandedWorker={expandedWorker}
+              setExpandedWorker={setExpandedWorker}
+              clearConfirmationText={clearConfirmationText}
+              setClearConfirmationText={setClearConfirmationText}
+              dbMessage={dbMessage}
+              handleClearAllSubmissions={handleClearAllSubmissions}
+              handleClearAllWithdrawals={handleClearAllWithdrawals}
+              handleClearAllProfiles={handleClearAllProfiles}
+              isClearingSubmissions={isClearingSubmissions}
+              isClearingWithdrawals={isClearingWithdrawals}
+              isClearingProfiles={isClearingProfiles}
+              handleSaveSettings={handleSaveSettings}
+              settingsStatus={settingsStatus}
+              withdrawals={withdrawals}
+              igSubTab={igSubTab}
+              setIgSubTab={setIgSubTab}
+            />
           )}
 
           {/* ADMIN: WITHDRAWALS APPROVAL TAB */}
@@ -2241,315 +1741,22 @@ export default function App() {
             </div>
           )}
 
-          {/* ADMIN: SYSTEM SETTINGS TAB */}
-          {activeTab === 'admin_settings' && (
-            <div className="max-w-xl mx-auto space-y-6">
-              <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-white mb-1">সিস্টেম কনফিগারেশন (System Settings)</h3>
-                  <p className="text-xs text-slate-400">
-                    এখানে আপনার টেলিগ্রাম বট এবং প্রতি আইডি কাজের রেট নির্ধারণ করতে পারেন।
-                  </p>
-                </div>
-
-                <form onSubmit={handleSaveSettings} className="space-y-4 pt-2">
-                  {/* ID work rate */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Instagram Rate Per Approved Account (Taka)</label>
-                      <input 
-                        type="number"
-                        value={settings.ratePerId}
-                        onChange={(e) => setAppSettings(prev => ({ ...prev, ratePerId: parseFloat(e.target.value) || 0 }))}
-                        className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Rate Per Approved Account (Taka)</label>
-                      <input 
-                        type="number"
-                        value={settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : 45}
-                        onChange={(e) => setAppSettings(prev => ({ ...prev, facebookRatePerId: parseFloat(e.target.value) || 0 }))}
-                        className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Minimum Withdraw Limit (Taka)</label>
-                      <input 
-                        type="number"
-                        value={settings.minWithdraw || 50}
-                        onChange={(e) => setAppSettings(prev => ({ ...prev, minWithdraw: parseFloat(e.target.value) || 0 }))}
-                        className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Facebook Settings Panel */}
-                  <div className="bg-slate-950 border border-slate-800/60 p-5 rounded-xl space-y-4">
-                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">ফেসবুক কাজ সেটিংস (Facebook Work Configs)</h4>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook First Name (বটের জন্য)</label>
-                        <input 
-                          type="text"
-                          value={settings.facebookFirstName || ""}
-                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookFirstName: e.target.value }))}
-                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                          placeholder="e.g. Robin"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Last Name (বটের জন্য)</label>
-                        <input 
-                          type="text"
-                          value={settings.facebookLastName || ""}
-                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookLastName: e.target.value }))}
-                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                          placeholder="e.g. Khan"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Password (বটের জন্য)</label>
-                        <input 
-                          type="text"
-                          value={settings.facebookPassword || ""}
-                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookPassword: e.target.value }))}
-                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                          placeholder="e.g. pass123456"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4 bg-slate-900/60 p-3.5 rounded-lg border border-slate-800">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Facebook Work Status (ফেসবুক কাজ সচল/বন্ধ)</span>
-                        <span className="text-xs text-slate-300 font-bold">
-                          {settings.facebookWorkActive !== false ? "🟢 সচল (ON)" : "🔴 বন্ধ (OFF)"}
-                        </span>
-                        <p className="text-[9px] text-slate-500 mt-0.5">
-                          এটি বন্ধ করলে টেলিগ্রামের ফেসবুক কাজ সাময়িকভাবে অফ থাকবে।
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => setAppSettings(prev => ({ ...prev, facebookWorkActive: prev.facebookWorkActive === false ? true : false }))} 
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all shrink-0 ${settings.facebookWorkActive !== false ? 'bg-indigo-600' : 'bg-slate-800'}`}
-                      >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all ${settings.facebookWorkActive !== false ? 'translate-x-6' : 'translate-x-1'}`} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Work Status Toggle */}
-                  <div className="bg-slate-950 border border-slate-800 p-4 rounded-lg flex items-center justify-between gap-4">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Instagram Work Status (ইন্সটাগ্রাম কাজ সচল/বন্ধ)</span>
-                      <span className="text-xs text-slate-300 font-bold">
-                        {settings.instagramWorkActive !== false ? "🟢 সচল (ON)" : "🔴 বন্ধ (OFF)"}
-                      </span>
-                      <p className="text-[9px] text-slate-500 mt-0.5">
-                        এটি বন্ধ করলে টেলিগ্রামের কাজ এবং ওয়েবসাইটের নতুন আইডি তৈরি সাময়িকভাবে বন্ধ হয়ে যাবে।
-                      </p>
-                    </div>
-                    <button 
-                      type="button"
-                      onClick={() => setAppSettings(prev => ({ ...prev, instagramWorkActive: prev.instagramWorkActive === false ? true : false }))} 
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all shrink-0 ${settings.instagramWorkActive !== false ? 'bg-indigo-600' : 'bg-slate-800'}`}
-                    >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all ${settings.instagramWorkActive !== false ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-
-                  {/* Telegram token */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Telegram Bot Token</label>
-                    <input 
-                      type="text"
-                      placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsT"
-                      value={settings.telegramBotToken}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, telegramBotToken: e.target.value }))}
-                      className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                    />
-                  </div>
-
-                  {/* Telegram chat ID with auto detector */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Telegram Chat ID / Group ID</label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="e.g. -100XXXXXXXXXX or @my_channel"
-                        value={settings.telegramChatId}
-                        onChange={(e) => setAppSettings(prev => ({ ...prev, telegramChatId: e.target.value }))}
-                        className="flex-grow bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleDetectChatId}
-                        disabled={findingChatId}
-                        className="px-4 py-3 bg-indigo-600/10 border border-indigo-500/20 hover:bg-indigo-600 text-indigo-400 hover:text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {findingChatId ? 'খোঁজা হচ্ছে...' : 'আইডি খুঁজুন 🔍'}
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      বটকে গ্রুপে অ্যাড করে একটি মেসেজ দেওয়ার পর "আইডি খুঁজুন" বাটনে চাপ দিলে অটোমেটিক আইডি বসে যাবে।
-                    </p>
-                  </div>
-
-                  {/* Admin Password */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Admin Panel Access Password</label>
-                    <input 
-                      type="password"
-                      placeholder="e.g. admin123"
-                      value={settings.adminPassword || ''}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, adminPassword: e.target.value }))}
-                      className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      🔒 এডমিন প্যানেলে প্রবেশ করার সিকিউরিটি পাসওয়ার্ড। এটি ডাটাবেজে এনক্রিপ্ট হয়ে সুরক্ষিত থাকবে।
-                    </p>
-                  </div>
-
-                  {/* Daily Generated Password */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Daily Generated Instagram Password (ঐচ্ছিক)</label>
-                    <input 
-                      type="text"
-                      placeholder="খালি রাখলে প্রতিবার রেন্ডম পাসওয়ার্ড তৈরি হবে"
-                      value={settings.dailyPassword || ''}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, dailyPassword: e.target.value }))}
-                      className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      নির্ধারিত পাসওয়ার্ড দিলে ইউজার কাজ শুরু করার পর অটোমেটিক এই পাসওয়ার্ডটিই পাবে।
-                    </p>
-                  </div>
-
-                  {chatIdMessage && (
-                    <div className={`p-3.5 rounded-xl text-xs font-medium leading-relaxed ${
-                      chatIdMessage.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      chatIdMessage.type === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                      'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 animate-pulse'
-                    }`}>
-                      {chatIdMessage.text}
-                    </div>
-                  )}
-
-                  <AnimatePresence>
-                    {settingsStatus && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -12, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 12, scale: 0.96 }}
-                        transition={{ duration: 0.35, ease: "easeOut" }}
-                        className={`p-4 rounded-xl border flex items-start gap-3 ${
-                          settingsStatus.type === 'success' 
-                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 shadow-lg shadow-emerald-500/5' 
-                            : settingsStatus.type === 'error'
-                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 shadow-lg shadow-rose-500/5'
-                            : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300 border-dashed'
-                        }`}
-                      >
-                        {settingsStatus.type === 'success' && (
-                          <div className="p-1 bg-emerald-500/20 rounded-lg text-emerald-400 flex-shrink-0">
-                            <CheckCircle size={18} className="animate-bounce" />
-                          </div>
-                        )}
-                        {settingsStatus.type === 'error' && (
-                          <div className="p-1 bg-rose-500/20 rounded-lg text-rose-400 flex-shrink-0">
-                            <XCircle size={18} />
-                          </div>
-                        )}
-                        {settingsStatus.type === 'saving' && (
-                          <div className="p-1 bg-indigo-500/20 rounded-lg text-indigo-400 flex-shrink-0">
-                            <RefreshCw size={18} className="animate-spin" />
-                          </div>
-                        )}
-                        <div className="flex-1">
-                          <p className="text-xs font-bold uppercase tracking-wider mb-0.5">
-                            {settingsStatus.type === 'success' ? 'সফল হয়েছে! (Saved)' : settingsStatus.type === 'error' ? 'ব্যর্থ হয়েছে! (Failed)' : 'সংরক্ষণ করা হচ্ছে... (Saving)'}
-                          </p>
-                          <p className="text-xs font-normal leading-relaxed opacity-95">{settingsStatus.text}</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <button 
-                    type="submit"
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-all text-sm"
-                  >
-                    সেটিংস সংরক্ষণ করুন (Save Settings)
-                  </button>
-                </form>
-              </div>
-
-              {/* TELEGRAM BULK BROADCAST */}
-              <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-4">
-                <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2.5">
-                    <Send className="text-indigo-400" size={18} />
-                    টেলিগ্রাম বাল্ক ব্রডকাস্ট (Telegram Bulk Broadcast)
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    বটের সাথে কানেক্টেড সকল ব্যবহারকারীকে একসাথে সরাসরি মেসেজ বা নোটিশ পাঠান।
-                  </p>
-                </div>
-
-                <form onSubmit={handleSendBroadcast} className="space-y-4 pt-2">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Broadcast Message Text (HTML Supported)</label>
-                    <textarea 
-                      rows={4}
-                      placeholder="যেমন: 📢 আমাদের নতুন আপডেট এসেছে! অথবা আপনি HTML ট্যাগ ব্যবহার করতে পারেন যেমন <b>bold</b> বা <code>code</code>"
-                      value={broadcastMessageText}
-                      onChange={(e) => setBroadcastMessageText(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 p-4 rounded-xl text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600 leading-relaxed font-sans"
-                    />
-                  </div>
-
-                  {broadcastStatus && (
-                    <div className={`p-4 rounded-xl text-xs font-medium leading-relaxed border ${
-                      broadcastStatus.type === 'success' 
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                        : broadcastStatus.type === 'sending'
-                        ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20 animate-pulse'
-                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                    }`}>
-                      {broadcastStatus.text}
-                    </div>
-                  )}
-
-                  <button 
-                    type="submit"
-                    disabled={isBroadcasting}
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-sm flex items-center justify-center gap-2"
-                  >
-                    {isBroadcasting ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        মেসেজ পাঠানো হচ্ছে...
-                      </>
-                    ) : (
-                      <>
-                        <Send size={16} />
-                        সকল ইউজারকে মেসেজ পাঠান (Broadcast)
-                      </>
-                    )}
-                  </button>
-                </form>
-
-                <div className="text-[11px] bg-slate-950 border border-slate-800/80 p-4 rounded-xl text-slate-400 leading-relaxed space-y-1.5">
-                  <span className="font-bold text-indigo-400 block mb-0.5">💡 ব্রডকাস্ট কীভাবে কাজ করে (Guide):</span>
-                  <p>১. আপনার টেলিগ্রাম বটের টোকেন সেটিংসের ওপরে সঠিকভাবে প্রদান করা থাকতে হবে।</p>
-                  <p>২. মেসেজ বক্সে আপনার কাঙ্ক্ষিত মেসেজ বা নোটিশটি টাইপ করুন। আপনি সাধারণ টেক্সট ছাড়াও <code>&lt;b&gt;বোল্ড&lt;/b&gt;</code>, <code>&lt;i&gt;ইটালিক&lt;/i&gt;</code>, বা <code>&lt;code&gt;কোড&lt;/code&gt;</code> এর মতো HTML ফর্ম্যাটিং ট্যাগ ব্যবহার করতে পারেন।</p>
-                  <p>৩. এরপর <b>'সকল ইউজারকে মেসেজ পাঠান'</b> বাটনে ক্লিক করলে সিস্টেম অটোমেটিকলি ডাটাবেজ থেকে সকল সচল ব্যবহারকারীর চ্যাট আইডি সংগ্রহ করে এবং ব্যাকএন্ড প্রক্সি ব্যবহার করে প্রতিটি ব্যবহারকারীকে পৃথক নোটিফিকেশন পাঠায়।</p>
-                </div>
-              </div>
-            </div>
+          {/* ADMIN: SYSTEM/BOT SETTINGS TAB */}
+          {activeTab === 'admin_bot' && (
+            <AdminBot
+              settings={settings}
+              setAppSettings={setAppSettings}
+              handleSaveSettings={handleSaveSettings}
+              settingsStatus={settingsStatus}
+              handleDetectChatId={handleDetectChatId}
+              findingChatId={findingChatId}
+              chatIdMessage={chatIdMessage}
+              broadcastMessageText={broadcastMessageText}
+              setBroadcastMessageText={setBroadcastMessageText}
+              handleSendBroadcast={handleSendBroadcast}
+              isBroadcasting={isBroadcasting}
+              broadcastStatus={broadcastStatus}
+            />
           )}
         </>
       )}

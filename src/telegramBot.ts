@@ -115,6 +115,39 @@ function generatePrefixlessUsername(): string {
   return result;
 }
 
+// --- Helper: Bangladeshi Name Generator ---
+function generateBangladeshiName(): { firstName: string; lastName: string } {
+  const firstNames = [
+    "Robin", "Hasan", "Arif", "Jamil", "Shakil", "Rakib", "Sourav", "Naim", "Fahim", 
+    "Sajjad", "Tamim", "Rony", "Hridoy", "Sabbir", "Akash", "Amit", "Mehedi", "Tanvir", 
+    "Imran", "Joy", "Shuvo", "Yeasin", "Rifat", "Asif", "Sifat", "Alamin", "Sajib", 
+    "Rasel", "Monir", "Babu", "Manik", "Milon", "Rubel", "Sohel", "Rana", "Sumon", 
+    "Sujon", "Ripon", "Jewel", "Pavel", "Shimul", "Palash", "Shanto", "Rashed", 
+    "Ashik", "Anik", "Opu", "Salman", "Nayem", "Emon", "Jihad", "Siam", "Shihab", 
+    "Mahfuz", "Kamrul", "Masud", "Tareq", "Zahid", "Said", "Farhan", "Arman", 
+    "Saikat", "Shuvro", "Niloy", "Ariful", "Saiful", "Ashraful", "Shariful", "Rafiqul", 
+    "Shafiqul", "Aminul", "Mizanur", "Atiar", "Habibur", "Mostafizur", "Anisur", "Rezaul", 
+    "Jahangir", "Alamgir", "Shahadat", "Shahin", "Liton", "Polash", "Sadek", "Jafar", 
+    "Iqbal", "Mainul"
+  ];
+
+  const lastNames = [
+    "Khan", "Ahmed", "Rahman", "Islam", "Hasan", "Chowdhury", "Hossain", "Ali", 
+    "Sheikh", "Uddin", "Sarkar", "Bhowmick", "Sen", "Das", "Roy", "Sikder", 
+    "Talukder", "Patwary", "Mazumder", "Bhuiyan", "Molla", "Akand", "Halder", 
+    "Ghorami", "Kazi", "Mia", "Miah", "Munshi", "Dewan", "Prodhan", "Joarder", 
+    "Pramanik", "Mondal", "Gain", "Biswas", "Ghosh", "Banik", "Paul", "Sutradhar", 
+    "Karmakar", "Basak", "Saha", "Karim", "Alam", "Zaman", "Sharkar", "Sharker", 
+    "Khondokar", "Kabir", "Mahmud", "Munna", "Gazi", "Haque", "Howlader", "Farazi", 
+    "Matubbar", "Sarder"
+  ];
+
+  const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+  const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+
+  return { firstName, lastName };
+}
+
 // --- Helper: Credential Generator ---
 function generateInstagramCreds(prefix?: string, dailyPassword?: string) {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -490,15 +523,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     if (text === "number/anymail Facebook Cookie") {
       let isWorkActive = true;
-      let firstName = "";
-      let lastName = "";
       let password = "";
       try {
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
           const sData = settingsSnap.data();
-          firstName = sData.facebookFirstName || "";
-          lastName = sData.facebookLastName || "";
           password = sData.facebookPassword || "";
           if (sData.facebookWorkActive === false) {
             isWorkActive = false;
@@ -514,6 +543,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         });
         return;
       }
+
+      const bdName = generateBangladeshiName();
+      const firstName = bdName.firstName;
+      const lastName = bdName.lastName;
 
       const fbText = `👥 <b>ফেসবুক কাজের তথ্য:</b>\n\n` +
                      `👤 <b>First Name:</b> <code>${firstName}</code>\n` +

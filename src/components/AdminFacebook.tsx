@@ -549,23 +549,23 @@ export default function AdminFacebook({
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">First Name (বটের জন্য)</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">First Name (অটো বাংলাদেশী জেনারেট)</label>
                     <input 
                       type="text"
-                      value={settings.facebookFirstName || ""}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, facebookFirstName: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      placeholder="e.g. Robin"
+                      disabled
+                      value="অটো বাংলাদেশী নাম জেনারেট"
+                      className="w-full bg-slate-900/40 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-500 text-sm outline-none cursor-not-allowed"
+                      placeholder="Auto Generated"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Last Name (বটের জন্য)</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Last Name (অটো বাংলাদেশী জেনারেট)</label>
                     <input 
                       type="text"
-                      value={settings.facebookLastName || ""}
-                      onChange={(e) => setAppSettings(prev => ({ ...prev, facebookLastName: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
-                      placeholder="e.g. Khan"
+                      disabled
+                      value="অটো বাংলাদেশী নাম জেনারেট"
+                      className="w-full bg-slate-900/40 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-500 text-sm outline-none cursor-not-allowed"
+                      placeholder="Auto Generated"
                     />
                   </div>
                   <div>

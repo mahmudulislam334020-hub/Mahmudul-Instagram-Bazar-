@@ -373,28 +373,120 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
 }
 
 // --- Core Telegram Message Handlers ---
-async function handleAdminCommand(bot: TelegramBot, chatId: number) {
-  if (chatId !== 7990244560) {
-    await bot.sendMessage(chatId, "You do not have permission to use this command.");
+async function getAdminChatId(): Promise<string> {
+  try {
+    const settingsSnap = await getDoc(doc(db, "settings", "global"));
+    if (settingsSnap.exists()) {
+      const sData = settingsSnap.data();
+      if (sData.telegramChatId) {
+        return String(sData.telegramChatId).trim();
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching settings for admin authorization:", err);
+  }
+  return "7990244560"; // fallback
+}
+
+async function handleAdminInstagramCommand(bot: TelegramBot, chatId: number) {
+  const adminChatIdStr = await getAdminChatId();
+  const isAuthorized = String(chatId) === adminChatIdStr || chatId === 7990244560;
+
+  if (!isAuthorized) {
+    await bot.sendMessage(chatId, "দুঃখিত, আপনার এই কাজের জন্য পারমিশন নাই।");
     return;
   }
 
-  const submissionsRef = collection(db, "submissions");
-  const querySnapshot = await getDocs(submissionsRef);
-  const data = querySnapshot.docs.map(doc => doc.data());
+  try {
+    const submissionsRef = collection(db, "submissions");
+    const querySnapshot = await getDocs(submissionsRef);
+    const allDocs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Submissions");
-  
-  const filePath = path.join(process.cwd(), 'submissions.xlsx');
-  XLSX.writeFile(wb, filePath);
+    // Filter Instagram submissions (category is NOT facebook)
+    const instagramDocs = allDocs.filter(s => s.category !== "facebook");
 
-  await bot.sendDocument(chatId, filePath);
-  
-  // Cleanup
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+    const headers = ["Username", "Password", "2FA Key", "Submitted By", "Status", "Submitted At"];
+    const rows = instagramDocs.map(s => [
+      s.username || "",
+      s.password || "",
+      s.twoFactorKey || "",
+      s.submittedBy || "",
+      s.status || "",
+      s.createdAt ? new Date(s.createdAt).toLocaleString() : ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Instagram Submissions");
+    
+    const filePath = path.join(process.cwd(), 'instagram_submissions.xlsx');
+    XLSX.writeFile(wb, filePath);
+
+    await bot.sendDocument(chatId, filePath, {
+      caption: `📸 <b>ইনস্টাগ্রাম সাবমিশন রিপোর্ট (Instagram Submission Report)</b>\n\n` +
+               `📊 মোট সাবমিশন: ${instagramDocs.length} টি`,
+      parse_mode: "HTML"
+    });
+    
+    // Cleanup
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error("Error in handleAdminInstagramCommand:", err);
+    await bot.sendMessage(chatId, "❌ রিপোর্ট জেনারেট করতে কোনো সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+  }
+}
+
+async function handleAdminFacebookCommand(bot: TelegramBot, chatId: number) {
+  const adminChatIdStr = await getAdminChatId();
+  const isAuthorized = String(chatId) === adminChatIdStr || chatId === 7990244560;
+
+  if (!isAuthorized) {
+    await bot.sendMessage(chatId, "দুঃখিত, আপনার এই কাজের জন্য পারমিশন নাই।");
+    return;
+  }
+
+  try {
+    const submissionsRef = collection(db, "submissions");
+    const querySnapshot = await getDocs(submissionsRef);
+    const allDocs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+
+    // Filter Facebook submissions (category === "facebook")
+    const facebookDocs = allDocs.filter(s => s.category === "facebook");
+
+    const headers = ["UID", "Password", "First Name", "Last Name", "Cookie", "Submitted By", "Status", "Submitted At"];
+    const rows = facebookDocs.map(s => [
+      s.username || s.uid || "",
+      s.password || "",
+      s.firstName || "",
+      s.lastName || "",
+      s.cookie || "",
+      s.submittedBy || "",
+      s.status || "",
+      s.createdAt ? new Date(s.createdAt).toLocaleString() : ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Facebook Submissions");
+    
+    const filePath = path.join(process.cwd(), 'facebook_submissions.xlsx');
+    XLSX.writeFile(wb, filePath);
+
+    await bot.sendDocument(chatId, filePath, {
+      caption: `👥 <b>ফেসবুক সাবমিশন রিপোর্ট (Facebook Submission Report)</b>\n\n` +
+               `📊 মোট সাবমিশন: ${facebookDocs.length} টি`,
+      parse_mode: "HTML"
+    });
+    
+    // Cleanup
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error("Error in handleAdminFacebookCommand:", err);
+    await bot.sendMessage(chatId, "❌ রিপোর্ট জেনারেট করতে কোনো সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
   }
 }
 
@@ -418,9 +510,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     return;
   }
 
-  // Admin Command
-  if (text === "/admin") {
-    await handleAdminCommand(bot, chatId);
+  // Admin Commands
+  if (text === "/adminq") {
+    await handleAdminInstagramCommand(bot, chatId);
+    return;
+  }
+  if (text === "/adminp") {
+    await handleAdminFacebookCommand(bot, chatId);
     return;
   }
 

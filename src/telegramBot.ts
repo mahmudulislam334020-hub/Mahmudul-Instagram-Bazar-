@@ -30,7 +30,10 @@ interface BotState {
     | 'awaiting_withdraw_method'
     | 'awaiting_withdraw_number'
     | 'awaiting_withdraw_amount'
-    | 'awaiting_independent_2fa_key';
+    | 'awaiting_independent_2fa_key'
+    | 'awaiting_facebook_uid'
+    | 'awaiting_facebook_cookie'
+    | 'awaiting_facebook_complete';
   instagramData?: {
     username?: string;
     password?: string;
@@ -41,6 +44,14 @@ interface BotState {
   withdrawData?: {
     method?: 'bKash' | 'Nagad' | 'Rocket';
     number?: string;
+  };
+  facebookData?: {
+    firstName?: string;
+    lastName?: string;
+    password?: string;
+    uid?: string;
+    cookie?: string;
+    promptMsgId?: number;
   };
 }
 
@@ -130,6 +141,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const settingsSnap = await getDoc(settingsRef);
   const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
   const ratePerId = settings.ratePerId || 45;
+  const facebookRatePerId = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : ratePerId;
 
   const submissionsRef = collection(db, "submissions");
   const uniqueSubmissions = new Map<string, any>();
@@ -176,7 +188,14 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
   const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
 
-  const totalEarned = approvedCount * ratePerId;
+  // Calculate rate based on category
+  const totalEarned = userSubmissions
+    .filter(s => s.status === "approved")
+    .reduce((sum, s) => {
+      const isFacebook = s.category === "facebook";
+      const rate = isFacebook ? facebookRatePerId : ratePerId;
+      return sum + rate;
+    }, 0);
 
   // Fetch withdrawals for this user (by telegramChatId and/or walletNumber)
   const withdrawalsRef = collection(db, "withdrawals");
@@ -249,7 +268,10 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
     parse_mode: "HTML",
     reply_markup: {
       keyboard: [
-        [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+        [
+          { text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" },
+          { text: "👥 ফেসবুকের কাজ" }
+        ],
         [
           { text: "💰 ব্যালেন্স চেক" },
           { text: "💸 ব্যালেন্স উত্তোলন" }
@@ -432,6 +454,101 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
   // --- 5. Step: Main Menu Actions ---
   if (state.step === "main_menu") {
+    if (text === "👥 ফেসবুকের কাজ" || text === "ফেসবুকের কাজ") {
+      let isWorkActive = true;
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "global"));
+        if (settingsSnap.exists()) {
+          const sData = settingsSnap.data();
+          if (sData.facebookWorkActive === false) {
+            isWorkActive = false;
+          }
+        }
+      } catch (e) {
+        console.warn("Error loading settings in bot command:", e);
+      }
+
+      if (!isWorkActive) {
+        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML"
+        });
+        return;
+      }
+
+      await bot.sendMessage(chatId, `👥 <b>ফেসবুকের কাজ শুরু করতে নিচে ক্লিক করুন:</b>`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [{ text: "number/anymail Facebook Cookie" }],
+            [{ text: "🔙 মেইন মেনু" }]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false
+        }
+      });
+      return;
+    }
+
+    if (text === "number/anymail Facebook Cookie") {
+      let isWorkActive = true;
+      let firstName = "";
+      let lastName = "";
+      let password = "";
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "global"));
+        if (settingsSnap.exists()) {
+          const sData = settingsSnap.data();
+          firstName = sData.facebookFirstName || "";
+          lastName = sData.facebookLastName || "";
+          password = sData.facebookPassword || "";
+          if (sData.facebookWorkActive === false) {
+            isWorkActive = false;
+          }
+        }
+      } catch (e) {
+        console.warn("Error loading settings in bot command:", e);
+      }
+
+      if (!isWorkActive) {
+        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML"
+        });
+        return;
+      }
+
+      const fbText = `👥 <b>ফেসবুক কাজের তথ্য:</b>\n\n` +
+                     `👤 <b>First Name:</b> <code>${firstName}</code>\n` +
+                     `👤 <b>Last Name:</b> <code>${lastName}</code>\n` +
+                     `🔑 <b>Password:</b> <code>${password}</code>\n\n` +
+                     `<i>(অনুগ্রহ করে এই নাম ও পাসওয়ার্ড দিয়ে ফেসবুক অ্যাকাউন্ট তৈরি করুন। তারপর নিচের <b>'Send UID'</b> বাটন বা তার নিচে ১৬ সংখ্যার UID প্রদান করুন)</i>`;
+
+      await bot.sendMessage(chatId, fbText, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [{ text: "Send UID" }],
+            [{ text: "❌ কাজটি বাতিল করুন" }]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false
+        }
+      });
+
+      state.step = "awaiting_facebook_uid";
+      state.facebookData = {
+        firstName,
+        lastName,
+        password
+      };
+      userStates.set(chatId, state);
+      return;
+    }
+
+    if (text === "🔙 মেইন মেনু") {
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
     if (text === "📸 ইনস্টাগ্রাম টু-এফএ কাজ") {
       await cleanUpInstagramMessages(bot, chatId, state);
 
@@ -614,6 +731,187 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     // Default main menu render if text doesn't match
     await showMainMenu(bot, chatId, profile);
+    return;
+  }
+
+  // --- Facebook Step: Awaiting Facebook UID ---
+  if (state.step === "awaiting_facebook_uid") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.facebookData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ ফেসবুক কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (text === "Send UID") {
+      await bot.sendMessage(chatId, `👤 অনুগ্রহ করে আপনার ১৬ সংখ্যার ফেসবুক ইউ আই ডি <b>(Facebook UID)</b> টি নিচে লিখে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    // Validate UID: 15-16 digits or 10-18 digits to be safe and extremely accommodating to standard Facebook UIDs
+    const cleanedUID = text.replace(/\s+/g, "");
+    const isDigits = /^\d{10,20}$/.test(cleanedUID);
+    if (!isDigits) {
+      await bot.sendMessage(chatId, `❌ <b>ভুল ইউ আই ডি!</b> অনুগ্রহ করে সঠিক ফেসবুক ইউ আই ডি (Facebook UID) প্রদান করুন (স্পেস ছাড়া শুধু সংখ্যা):`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    if (state.facebookData) {
+      state.facebookData.uid = cleanedUID;
+    }
+    state.step = "awaiting_facebook_cookie";
+    userStates.set(chatId, state);
+
+    await bot.sendMessage(chatId, `🍪 ইউ আই ডি সফলভাবে সেট হয়েছে!\n\nএখন অনুগ্রহ করে আপনার ফেসবুক কুকি <b>(Facebook Cookie)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+        resize_keyboard: true
+      }
+    });
+    return;
+  }
+
+  // --- Facebook Step: Awaiting Facebook Cookie ---
+  if (state.step === "awaiting_facebook_cookie") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.facebookData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ ফেসবুক কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    // Since Cookie can be quite complex, accept any non-empty string
+    if (!text || text.trim().length < 5) {
+      await bot.sendMessage(chatId, `⚠️ <b>ভুল কুকি!</b> অনুগ্রহ করে একটি সঠিক ফেসবুক কুকি (Facebook Cookie) লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    if (state.facebookData) {
+      state.facebookData.cookie = text.trim();
+    }
+    state.step = "awaiting_facebook_complete";
+    userStates.set(chatId, state);
+
+    await bot.sendMessage(chatId, `🍪 কুকি সফলভাবে গ্রহণ করা হয়েছে!\n\nকাজটি সম্পূর্ণ ও জমা করতে নিচে <b>'✅ কাজ সম্পূর্ণ'</b> বাটনে ক্লিক করুন:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: "✅ কাজ সম্পূর্ণ" }],
+          [{ text: "❌ কাজটি বাতিল করুন" }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      }
+    });
+    return;
+  }
+
+  // --- Facebook Step: Awaiting Facebook Complete ---
+  if (state.step === "awaiting_facebook_complete") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.facebookData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ ফেসবুক কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (text === "✅ কাজ সম্পূর্ণ" || text === "কাজ সম্পূর্ণ") {
+      const fd = state.facebookData;
+      if (!fd || !fd.uid || !fd.cookie) {
+        await bot.sendMessage(chatId, "❌ তথ্য পাওয়া যায়নি। অনুগ্রহ করে নতুন করে কাজ শুরু করুন।");
+        state.step = "main_menu";
+        state.facebookData = undefined;
+        userStates.set(chatId, state);
+        await showMainMenu(bot, chatId, profile);
+        return;
+      }
+
+      const newSub = {
+        username: fd.uid,
+        password: fd.password || "",
+        twoFactorKey: "",
+        uid: fd.uid,
+        cookie: fd.cookie,
+        firstName: fd.firstName || "",
+        lastName: fd.lastName || "",
+        category: 'facebook' as const,
+        submittedBy: profile.walletNumber || String(chatId),
+        telegramChatId: String(chatId),
+        status: 'pending' as const,
+        createdAt: new Date().toISOString()
+      };
+
+      await addDoc(collection(db, "submissions"), newSub);
+
+      // Get current settings
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+      const fbRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
+
+      const escapeHtml = (unsafe: string = "") => {
+        return String(unsafe)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      };
+
+      // Notify Web Admin via Telegram
+      const adminText = `👥 <b>নতুন ফেসবুক কাজ জমা (New FB Submission)</b> 👥\n\n` +
+                        `👤 <b>First Name:</b> <code>${escapeHtml(fd.firstName)}</code>\n` +
+                        `👤 <b>Last Name:</b> <code>${escapeHtml(fd.lastName)}</code>\n` +
+                        `🔑 <b>Password:</b> <code>${escapeHtml(fd.password)}</code>\n` +
+                        `🆔 <b>UID:</b> <code>${escapeHtml(fd.uid)}</code>\n` +
+                        `🍪 <b>Cookie:</b> <code>${escapeHtml(fd.cookie)}</code>\n` +
+                        `💵 <b>FB Rate:</b> ${fbRate} Taka\n` +
+                        `👤 <b>Submitted By:</b> <code>${profile.walletNumber || chatId}</code> (Bot)\n` +
+                        `📅 <b>Time:</b> ${new Date().toLocaleString()}`;
+
+      if (settings.telegramBotToken && settings.telegramChatId) {
+        try {
+          await bot.sendMessage(settings.telegramChatId, adminText, { parse_mode: "HTML" });
+        } catch (err) {
+          console.warn("Error notifying admin:", err);
+        }
+      }
+
+      await bot.sendMessage(chatId, `🎉 <b>আপনার ফেসবুক কাজ সফলভাবে জমা হয়েছে!</b>\n\n⏳ এডমিন চেক করার পর ব্যালেন্সে ৳${fbRate} Taka যোগ হবে।`);
+      
+      state.step = "main_menu";
+      state.facebookData = undefined;
+      userStates.set(chatId, state);
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    await bot.sendMessage(chatId, `⚠️ অনুগ্রহ করে <b>'✅ কাজ সম্পূর্ণ'</b> অথবা <b>'❌ কাজটি বাতিল করুন'</b> এ ক্লিক করুন।`);
     return;
   }
 

@@ -37,6 +37,7 @@ import {
   getUserProfile,
   getAllUserProfiles,
   clearAllSubmissions,
+  clearSubmissionsByCategory,
   clearAllWithdrawals,
   clearAllUserProfiles,
   updateSubmissionSubmittedBy,
@@ -144,6 +145,47 @@ export default function App() {
 
   // DB Data States
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [adminCategory, setAdminCategory] = useState<'instagram' | 'facebook'>('instagram');
+
+  const categoryFilteredSubmissions = useMemo(() => {
+    return submissions.filter(sub => {
+      const cat = sub.category || 'instagram';
+      return cat === adminCategory;
+    });
+  }, [submissions, adminCategory]);
+
+  const categoryGroupedSubmissions = useMemo(() => {
+    const groups: Record<string, {
+      worker: string;
+      submissions: Submission[];
+      total: number;
+      approved: number;
+      pending: number;
+      rejected: number;
+    }> = {};
+
+    categoryFilteredSubmissions.forEach((sub) => {
+      const worker = sub.submittedBy || 'Unknown Worker';
+      if (!groups[worker]) {
+        groups[worker] = {
+          worker,
+          submissions: [],
+          total: 0,
+          approved: 0,
+          pending: 0,
+          rejected: 0
+        };
+      }
+      groups[worker].submissions.push(sub);
+      groups[worker].total++;
+      if (sub.status === 'approved') groups[worker].approved++;
+      else if (sub.status === 'pending') groups[worker].pending++;
+      else if (sub.status === 'rejected') groups[worker].rejected++;
+    });
+
+    return Object.values(groups);
+  }, [categoryFilteredSubmissions]);
+
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -448,7 +490,7 @@ export default function App() {
         body: JSON.stringify({
           targetWalletNumber: sub.submittedBy,
           type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-          details: { username: sub.username }
+          details: { username: sub.username, category: sub.category }
         })
       }).catch(err => console.error("Error triggering user notification:", err));
     }
@@ -477,11 +519,11 @@ export default function App() {
     setIsClearingSubmissions(true);
     setDbMessage(null);
     try {
-      await clearAllSubmissions();
-      setSubmissions([]);
+      await clearSubmissionsByCategory(adminCategory);
+      setSubmissions(prev => prev.filter(s => (s.category || 'instagram') !== adminCategory));
       setSelectedSubIds([]);
       setClearConfirmationText('');
-      setDbMessage({ type: 'success', text: '✅ ডাটাবেজের সকল সাবমিশন সফলভাবে মুছে ফেলা হয়েছে!' });
+      setDbMessage({ type: 'success', text: `✅ ডাটাবেজের সকল ${adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} সাবমিশন সফলভাবে মুছে ফেলা হয়েছে!` });
     } catch (err) {
       console.error(err);
       setDbMessage({ type: 'error', text: '❌ সাবমিশন মুছতে সমস্যা হয়েছে।' });
@@ -612,7 +654,7 @@ export default function App() {
           body: JSON.stringify({
             targetWalletNumber: sub.submittedBy,
             type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-            details: { username: sub.username }
+            details: { username: sub.username, category: sub.category }
           })
         }).catch(err => console.error("Error triggering user notification:", err));
       }
@@ -668,7 +710,7 @@ export default function App() {
         body: JSON.stringify({
           targetWalletNumber: sub.submittedBy,
           type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-          details: { username: sub.username }
+          details: { username: sub.username, category: sub.category }
         })
       }).catch(err => console.error("Error triggering user notification:", err));
     }
@@ -826,23 +868,41 @@ export default function App() {
 
   // Export Submissions as beautiful CSV format that opens natively in Excel
   const handleExportCSV = () => {
-    const headers = ["Username", "Password", "2FA Key", "Submitted By", "Status", "Submitted At"];
-    const rows = submissions.map(s => [
-      s.username,
-      s.password,
-      s.twoFactorKey,
-      s.submittedBy,
-      s.status,
-      new Date(s.createdAt).toLocaleString()
-    ]);
+    const headers = adminCategory === 'facebook'
+      ? ["UID", "Password", "First Name", "Last Name", "Cookie", "Submitted By", "Status", "Submitted At"]
+      : ["Username", "Password", "2FA Key", "Submitted By", "Status", "Submitted At"];
+      
+    const rows = categoryFilteredSubmissions.map(s => {
+      if (adminCategory === 'facebook') {
+        return [
+          s.username,
+          s.password,
+          s.firstName || "",
+          s.lastName || "",
+          s.cookie || "",
+          s.submittedBy,
+          s.status,
+          new Date(s.createdAt).toLocaleString()
+        ];
+      } else {
+        return [
+          s.username,
+          s.password,
+          s.twoFactorKey,
+          s.submittedBy,
+          s.status,
+          new Date(s.createdAt).toLocaleString()
+        ];
+      }
+    });
 
     const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(","), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(","))].join("\n");
+      + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(","))].join("\n");
     
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `instagram_accounts_${new Date().toLocaleDateString()}.csv`);
+    link.setAttribute("download", `${adminCategory}_accounts_${new Date().toLocaleDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1513,7 +1573,7 @@ export default function App() {
                 <div>
                   <h3 className="text-lg font-bold text-white">আইডি সাবমিশন ও অনুমোদন (Submissions Manager)</h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    মোট {submissions.length}টি আইডি রেকর্ড রয়েছে। অনুমোদন এবং বাল্ক অনুমোদন সিলেক্ট করুন।
+                    মোট {categoryFilteredSubmissions.length}টি {adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} আইডি রেকর্ড রয়েছে। অনুমোদন এবং বাল্ক অনুমোদন সিলেক্ট করুন।
                   </p>
                 </div>
                 
@@ -1544,6 +1604,38 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Category Switcher bar */}
+              <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 flex flex-col sm:flex-row gap-2 max-w-xl">
+                <button
+                  onClick={() => {
+                    setAdminCategory('instagram');
+                    setSelectedSubIds([]);
+                  }}
+                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${
+                    adminCategory === 'instagram'
+                      ? 'bg-gradient-to-r from-pink-600 to-indigo-600 border-indigo-500 text-white shadow-md'
+                      : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <Instagram size={14} />
+                  <span>Instagram Work ({submissions.filter(s => (s.category || 'instagram') === 'instagram').length})</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setAdminCategory('facebook');
+                    setSelectedSubIds([]);
+                  }}
+                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 border ${
+                    adminCategory === 'facebook'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 border-indigo-500 text-white shadow-md'
+                      : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <Users size={14} />
+                  <span>Facebook Work ({submissions.filter(s => s.category === 'facebook').length})</span>
+                </button>
+              </div>
+
               {/* ADMIN SUB-TABS NAVIGATION */}
               <div className="flex border-b border-slate-800 gap-1">
                 <button
@@ -1555,7 +1647,7 @@ export default function App() {
                   }`}
                 >
                   <List size={14} />
-                  <span>সব আইডি তালিকা ({submissions.length})</span>
+                  <span>সব আইডি তালিকা ({categoryFilteredSubmissions.length})</span>
                 </button>
                 <button
                   onClick={() => setAdminSubTab('user_summary')}
@@ -1566,7 +1658,7 @@ export default function App() {
                   }`}
                 >
                   <Users size={14} />
-                  <span>ইউজার ভিত্তিক সামারি ({groupedSubmissions.length})</span>
+                  <span>ইউজার ভিত্তিক সামারি ({categoryGroupedSubmissions.length})</span>
                 </button>
                 <button
                   onClick={() => setAdminSubTab('db_control')}
@@ -1645,10 +1737,10 @@ export default function App() {
                             <th className="py-4 px-6 w-12 text-center">
                               <input 
                                 type="checkbox"
-                                checked={selectedSubIds.length === submissions.length && submissions.length > 0}
+                                checked={selectedSubIds.length === categoryFilteredSubmissions.length && categoryFilteredSubmissions.length > 0}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedSubIds(submissions.map(s => s.id || '').filter(Boolean));
+                                    setSelectedSubIds(categoryFilteredSubmissions.map(s => s.id || '').filter(Boolean));
                                   } else {
                                     setSelectedSubIds([]);
                                   }
@@ -1656,9 +1748,20 @@ export default function App() {
                                 className="rounded accent-indigo-600"
                               />
                             </th>
-                            <th className="py-4 px-4">Username</th>
-                            <th className="py-4 px-4">Password</th>
-                            <th className="py-4 px-4">2FA Key</th>
+                            {adminCategory === 'facebook' ? (
+                              <>
+                                <th className="py-4 px-4">UID (Username)</th>
+                                <th className="py-4 px-4">Password</th>
+                                <th className="py-4 px-4">Name</th>
+                                <th className="py-4 px-4">Cookie</th>
+                              </>
+                            ) : (
+                              <>
+                                <th className="py-4 px-4">Username</th>
+                                <th className="py-4 px-4">Password</th>
+                                <th className="py-4 px-4">2FA Key</th>
+                              </>
+                            )}
                             <th className="py-4 px-4">Worker</th>
                             <th className="py-4 px-4">Submitted At</th>
                             <th className="py-4 px-4 text-center">Status</th>
@@ -1666,12 +1769,12 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
-                          {submissions.length === 0 ? (
+                          {categoryFilteredSubmissions.length === 0 ? (
                             <tr>
                               <td colSpan={8} className="py-10 text-center text-slate-500 text-sm">কোনো আইডি এখনও জমা দেওয়া হয়নি।</td>
                             </tr>
                           ) : (
-                            submissions.map((sub, index) => (
+                            categoryFilteredSubmissions.map((sub, index) => (
                               <tr key={sub.id || index} className="hover:bg-slate-950/40 transition-colors">
                                 <td className="py-4 px-6 text-center">
                                   <input 
@@ -1687,9 +1790,33 @@ export default function App() {
                                     className="rounded accent-indigo-600"
                                   />
                                 </td>
-                                <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
-                                <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
-                                <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
+                                {adminCategory === 'facebook' ? (
+                                  <>
+                                    <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
+                                    <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
+                                    <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.firstName || ""} {sub.lastName || ""}</td>
+                                    <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.cookie}>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="truncate max-w-[100px]">{sub.cookie}</span>
+                                        <button
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(sub.cookie || "");
+                                            alert("Cookie copied to clipboard!");
+                                          }}
+                                          className="text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700 font-bold flex-shrink-0"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="py-4 px-4 font-mono text-xs text-white truncate max-w-[140px]" title={sub.username}>{sub.username}</td>
+                                    <td className="py-4 px-4 font-mono text-xs text-slate-400 truncate max-w-[140px]" title={sub.password}>{sub.password}</td>
+                                    <td className="py-4 px-4 font-mono text-xs text-indigo-400 truncate max-w-[160px]" title={sub.twoFactorKey}>{sub.twoFactorKey}</td>
+                                  </>
+                                )}
                                 <td className="py-4 px-4 text-slate-300 text-xs font-semibold">{sub.submittedBy}</td>
                                 <td className="py-4 px-4 text-slate-500 text-[10px]">{new Date(sub.createdAt).toLocaleString()}</td>
                                 <td className="py-4 px-4 text-center">
@@ -1972,10 +2099,10 @@ export default function App() {
                       <div>
                         <h5 className="text-xs font-bold text-white flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          আইডি সাবমিশন ক্লিয়ার
+                          {adminCategory === 'facebook' ? 'ফেসবুক সাবমিশন ক্লিয়ার' : 'ইনস্টাগ্রাম সাবমিশন ক্লিয়ার'}
                         </h5>
                         <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                          ডাটাবেজের সকল ইউজার আইডি সাবমিশন রেকর্ড (মোট {submissions.length}টি) মুছে ফেলে সম্পূর্ণ শূন্য করে দেওয়া হবে।
+                          ডাটাবেজের সকল {adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} আইডি সাবমিশন রেকর্ড (মোট {categoryFilteredSubmissions.length}টি) মুছে ফেলে সম্পূর্ণ শূন্য করে দেওয়া হবে।
                         </p>
                       </div>
                       <button
@@ -1983,7 +2110,7 @@ export default function App() {
                         disabled={clearConfirmationText !== 'CONFIRM' || isClearingSubmissions}
                         className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
                       >
-                        {isClearingSubmissions ? 'মুছে ফেলা হচ্ছে...' : 'সব সাবমিশন মুছুন ❌'}
+                        {isClearingSubmissions ? 'মুছে ফেলা হচ্ছে...' : `সব ${adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} সাবমিশন মুছুন ❌`}
                       </button>
                     </div>
 
@@ -2127,13 +2254,22 @@ export default function App() {
 
                 <form onSubmit={handleSaveSettings} className="space-y-4 pt-2">
                   {/* ID work rate */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Rate Per Approved Account (Taka)</label>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Instagram Rate Per Approved Account (Taka)</label>
                       <input 
                         type="number"
                         value={settings.ratePerId}
                         onChange={(e) => setAppSettings(prev => ({ ...prev, ratePerId: parseFloat(e.target.value) || 0 }))}
+                        className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Rate Per Approved Account (Taka)</label>
+                      <input 
+                        type="number"
+                        value={settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : 45}
+                        onChange={(e) => setAppSettings(prev => ({ ...prev, facebookRatePerId: parseFloat(e.target.value) || 0 }))}
                         className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
                       />
                     </div>
@@ -2145,6 +2281,63 @@ export default function App() {
                         onChange={(e) => setAppSettings(prev => ({ ...prev, minWithdraw: parseFloat(e.target.value) || 0 }))}
                         className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
                       />
+                    </div>
+                  </div>
+
+                  {/* Facebook Settings Panel */}
+                  <div className="bg-slate-950 border border-slate-800/60 p-5 rounded-xl space-y-4">
+                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">ফেসবুক কাজ সেটিংস (Facebook Work Configs)</h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook First Name (বটের জন্য)</label>
+                        <input 
+                          type="text"
+                          value={settings.facebookFirstName || ""}
+                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookFirstName: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+                          placeholder="e.g. Robin"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Last Name (বটের জন্য)</label>
+                        <input 
+                          type="text"
+                          value={settings.facebookLastName || ""}
+                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookLastName: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+                          placeholder="e.g. Khan"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Facebook Password (বটের জন্য)</label>
+                        <input 
+                          type="text"
+                          value={settings.facebookPassword || ""}
+                          onChange={(e) => setAppSettings(prev => ({ ...prev, facebookPassword: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+                          placeholder="e.g. pass123456"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 bg-slate-900/60 p-3.5 rounded-lg border border-slate-800">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">Facebook Work Status (ফেসবুক কাজ সচল/বন্ধ)</span>
+                        <span className="text-xs text-slate-300 font-bold">
+                          {settings.facebookWorkActive !== false ? "🟢 সচল (ON)" : "🔴 বন্ধ (OFF)"}
+                        </span>
+                        <p className="text-[9px] text-slate-500 mt-0.5">
+                          এটি বন্ধ করলে টেলিগ্রামের ফেসবুক কাজ সাময়িকভাবে অফ থাকবে।
+                        </p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setAppSettings(prev => ({ ...prev, facebookWorkActive: prev.facebookWorkActive === false ? true : false }))} 
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all shrink-0 ${settings.facebookWorkActive !== false ? 'bg-indigo-600' : 'bg-slate-800'}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all ${settings.facebookWorkActive !== false ? 'translate-x-6' : 'translate-x-1'}`} />
+                      </button>
                     </div>
                   </div>
 

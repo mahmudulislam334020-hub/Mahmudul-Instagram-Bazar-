@@ -21,7 +21,12 @@ async function getGlobalSettings() {
       usernamePrefix: fields.usernamePrefix?.stringValue || "",
       dailyPassword: fields.dailyPassword?.stringValue || "",
       minWithdraw: fields.minWithdraw?.integerValue ? parseInt(fields.minWithdraw.integerValue) : (fields.minWithdraw?.doubleValue ? parseFloat(fields.minWithdraw.doubleValue) : 50),
-      ratePerId: fields.ratePerId?.integerValue ? parseInt(fields.ratePerId.integerValue) : (fields.ratePerId?.doubleValue ? parseFloat(fields.ratePerId.doubleValue) : 45)
+      ratePerId: fields.ratePerId?.integerValue ? parseInt(fields.ratePerId.integerValue) : (fields.ratePerId?.doubleValue ? parseFloat(fields.ratePerId.doubleValue) : 45),
+      facebookFirstName: fields.facebookFirstName?.stringValue || "",
+      facebookLastName: fields.facebookLastName?.stringValue || "",
+      facebookPassword: fields.facebookPassword?.stringValue || "",
+      facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
+      facebookRatePerId: fields.facebookRatePerId?.integerValue ? parseInt(fields.facebookRatePerId.integerValue) : (fields.facebookRatePerId?.doubleValue ? parseFloat(fields.facebookRatePerId.doubleValue) : 45)
     };
   } catch (err) {
     console.error("Error reading global settings from REST API:", err);
@@ -124,14 +129,25 @@ async function startServer() {
 
       let text = "";
       if (type === "id_approved") {
-        text = `✅ <b>আপনার আইডি কাজ অনুমোদিত হয়েছে! (ID Approved)</b>\n\n` +
-               `👤 <b>ইউজারনেম:</b> <code>${details.username}</code>\n` +
-               `💵 <b>রেট:</b> ৳${settings.ratePerId} Taka\n\n` +
-               `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার আইডি শুরু করুন!`;
+        const isFacebook = details?.category === "facebook";
+        const rate = isFacebook 
+          ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+          : settings.ratePerId;
+        const workName = isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ";
+        const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+        
+        text = `✅ <b>আপনার ${workName} অনুমোদিত হয়েছে! (ID Approved)</b>\n\n` +
+               `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n` +
+               `💵 <b>রেট:</b> ৳${rate} Taka\n\n` +
+               `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার শুরু করুন!`;
       } else if (type === "id_rejected") {
-        text = `❌ <b>আপনার আইডি কাজ বাতিল করা হয়েছে! (ID Rejected)</b>\n\n` +
-               `👤 <b>ইউজারনেম:</b> <code>${details.username}</code>\n\n` +
-               `⚠️ সঠিক তথ্য বা সক্রিয় টু-এফএ সেট না করায় আপনার আইডিটি বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
+        const isFacebook = details?.category === "facebook";
+        const workName = isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ";
+        const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+
+        text = `❌ <b>আপনার ${workName} বাতিল করা হয়েছে! (ID Rejected)</b>\n\n` +
+               `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n\n` +
+               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিটি বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
       } else if (type === "withdraw_approved") {
         text = `💸 <b>আপনার টাকা উত্তোলনের অনুরোধটি সফলভাবে পেইড হয়েছে! (Withdraw Approved)</b>\n\n` +
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +

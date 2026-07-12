@@ -22,6 +22,11 @@ export interface Submission {
   status: "pending" | "approved" | "rejected";
   createdAt: string;
   submittedBy: string;
+  category?: "instagram" | "facebook";
+  uid?: string;
+  cookie?: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface Withdrawal {
@@ -43,6 +48,11 @@ export interface AppSettings {
   dailyPassword?: string;
   minWithdraw?: number;
   instagramWorkActive?: boolean;
+  facebookFirstName?: string;
+  facebookLastName?: string;
+  facebookPassword?: string;
+  facebookWorkActive?: boolean;
+  facebookRatePerId?: number;
 }
 
 export interface UserProfile {
@@ -81,7 +91,12 @@ const getFallbackSettings = (): AppSettings => {
     usernamePrefix: "",
     dailyPassword: "",
     minWithdraw: 50,
-    instagramWorkActive: true
+    instagramWorkActive: true,
+    facebookFirstName: "",
+    facebookLastName: "",
+    facebookPassword: "",
+    facebookWorkActive: true,
+    facebookRatePerId: 45
   };
 };
 
@@ -355,6 +370,28 @@ export async function clearAllSubmissions(): Promise<void> {
     console.warn("Firestore clear submissions error, using fallback:", error);
   }
   saveFallbackSubmissions([]);
+}
+
+export async function clearSubmissionsByCategory(category: "instagram" | "facebook"): Promise<void> {
+  try {
+    // Since some submissions may have category unset, we treat undefined as "instagram"
+    const q = collection(db, "submissions");
+    const querySnapshot = await withTimeout(getDocs(q), 5000);
+    const deletePromises: Promise<void>[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const subCategory = data.category || "instagram";
+      if (subCategory === category) {
+        deletePromises.push(deleteDoc(docSnap.ref));
+      }
+    });
+    await Promise.all(deletePromises);
+  } catch (error) {
+    console.warn(`Firestore clear ${category} submissions error, using fallback:`, error);
+  }
+  const subs = getFallbackSubmissions();
+  const filtered = subs.filter(s => (s.category || "instagram") !== category);
+  saveFallbackSubmissions(filtered);
 }
 
 export async function clearAllWithdrawals(): Promise<void> {

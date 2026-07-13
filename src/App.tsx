@@ -1145,9 +1145,21 @@ export default function App() {
                   <span className="text-sm font-bold text-white font-mono tracking-wide">{userWalletNumber}</span>
                 </div>
                 
-                <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
+                <p className="text-[9px] text-slate-500 mt-2 leading-relaxed font-medium">
                   ⚠️ এই ওয়ালেট ছাড়া অন্য কোনো নাম্বারে টাকা উত্তোলন করতে পারবেন না।
                 </p>
+
+                {activeProfile && (activeProfile as any).telegramChatId ? (
+                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    টেলিগ্রাম নোটিফিকেশন সচল ✅
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    নোটিফিকেশন লিংক নেই ⚠️
+                  </div>
+                )}
               </div>
 
               {/* View/Search Another Wallet */}
@@ -1402,6 +1414,32 @@ export default function App() {
               {/* DASHBOARD TAB */}
               {activeTab === 'dashboard' && (
             <div className="space-y-6">
+              {/* Telegram Notification linking promotion */}
+              {(!activeProfile || !(activeProfile as any).telegramChatId) && (
+                <div className="bg-indigo-950/40 border border-indigo-500/20 p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                      </span>
+                      টেলিগ্রাম নোটিফিকেশন লিংক (Telegram Notifications)
+                    </span>
+                    <h4 className="text-sm font-extrabold text-white">তাত্ক্ষণিক কাজের আপডেট এবং পেমেন্ট নোটিফিকেশন পান!</h4>
+                    <p className="text-xs text-indigo-200/80 leading-relaxed max-w-xl font-medium">
+                      আপনার সাবমিট করা আইডি আপ্রুভ বা রিজেক্ট হলে এবং টাকা উত্তোলনের পেমেন্ট কমপ্লিট হলে সাথে সাথে টেলিগ্রাম মেসেজে নোটিফিকেশন পেতে চান? নিচের বাটনে ক্লিক করে আমাদের টেলিগ্রাম বটে গিয়ে আপনার অ্যাকাউন্টটি লিংক করুন।
+                    </p>
+                  </div>
+                  <a
+                    href={`https://t.me/accounttradecenterXincome_bot?start=wallet_${userWalletNumber}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-950/40 transition-all hover:scale-[1.02] active:scale-[0.98] text-center flex items-center justify-center gap-1.5"
+                  >
+                    <span>💬 বটে লিংক করুন</span>
+                  </a>
+                </div>
+              )}
               {/* Custom Telegram Bot style 6-Button Grid */}
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">

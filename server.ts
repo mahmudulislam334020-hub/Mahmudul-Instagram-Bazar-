@@ -141,6 +141,12 @@ async function startServer() {
         }
       }
 
+      // If still not found, check if targetWalletNumber is actually a numeric telegramChatId itself
+      if (!chatId && /^\d+$/.test(targetWalletNumber) && !targetWalletNumber.startsWith("01")) {
+        chatId = targetWalletNumber;
+        console.log(`Using target identifier ${targetWalletNumber} directly as the telegramChatId.`);
+      }
+
       if (!chatId) {
         console.warn(`Profile for user ${targetWalletNumber} does not have a registered telegramChatId.`);
         return res.json({ status: "skipped", message: "User profile has no Telegram Chat ID linked yet." });

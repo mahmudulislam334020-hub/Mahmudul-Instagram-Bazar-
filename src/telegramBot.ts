@@ -15,6 +15,7 @@ import {
   getDoc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   collection, 
   getDocs, 
   addDoc, 
@@ -545,8 +546,53 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
   if (text.startsWith("/start")) {
     userStates.delete(chatId);
     
-    // Check if profile exists
+    const parts = text.split(" ");
+    let linkedWallet = "";
+    if (parts.length > 1 && parts[1].startsWith("wallet_")) {
+      linkedWallet = parts[1].replace("wallet_", "").trim();
+    }
+
     const profilesRef = collection(db, "profiles");
+
+    if (linkedWallet && linkedWallet.length === 11 && /^\d+$/.test(linkedWallet)) {
+      // User is trying to link their wallet number directly
+      const profileDocRef = doc(db, "profiles", linkedWallet);
+      const profileSnap = await getDoc(profileDocRef);
+      
+      let profile;
+      if (profileSnap.exists()) {
+        await updateDoc(profileDocRef, { telegramChatId: String(chatId) });
+        profile = { ...profileSnap.data(), telegramChatId: String(chatId) };
+      } else {
+        profile = {
+          walletNumber: linkedWallet,
+          telegramChatId: String(chatId),
+          walletType: "bKash",
+          createdAt: new Date().toISOString()
+        };
+        await setDoc(profileDocRef, profile);
+      }
+
+      // Cleanup duplicated/empty profiles under this telegramChatId to prevent clutter
+      try {
+        const qDuplicate = query(profilesRef, where("telegramChatId", "==", String(chatId)));
+        const dupSnap = await getDocs(qDuplicate);
+        for (const dupDoc of dupSnap.docs) {
+          if (dupDoc.id !== linkedWallet && (!dupDoc.data().walletNumber || dupDoc.data().walletNumber === "")) {
+            await deleteDoc(dupDoc.ref);
+          }
+        }
+      } catch (err) {
+        console.error("Error during duplicate profile cleanup:", err);
+      }
+
+      userStates.set(chatId, { step: "main_menu" });
+      await bot.sendMessage(chatId, `🔗 <b>আপনার ওয়ালেট নাম্বার ${linkedWallet} এর সাথে টেলিগ্রাম অ্যাকাউন্টটি সফলভাবে লিংক করা হয়েছে!</b>\n\nএখন থেকে আপনার আইডি আপ্রুভ বা রিজেক্ট এবং ব্যালেন্স উত্তোলনের তাৎক্ষণিক আপডেট এখানে মেসেজের মাধ্যমে পেয়ে যাবেন।`, { parse_mode: "HTML" });
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    // Normal start flow without linking parameters
     const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
     const querySnapshot = await getDocs(q);
 
@@ -1347,6 +1393,24 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     state.withdrawData = { ...state.withdrawData, number: walletNum };
     state.step = "awaiting_withdraw_amount";
     userStates.set(chatId, state);
+
+    // Update user profile in Firestore so their Telegram Chat ID is linked to this wallet number
+    try {
+      const profilesRef = collection(db, "profiles");
+      const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
+      const qSnap = await getDocs(q);
+      if (!qSnap.empty) {
+        await updateDoc(qSnap.docs[0].ref, {
+          walletNumber: walletNum,
+          walletType: state.withdrawData?.method || "bKash"
+        });
+        profile.walletNumber = walletNum;
+        profile.walletType = state.withdrawData?.method || "bKash";
+        console.log(`Linked profile walletNumber to ${walletNum} for chatId ${chatId}`);
+      }
+    } catch (err) {
+      console.error("Error linking wallet number to profile:", err);
+    }
 
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 

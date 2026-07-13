@@ -1433,7 +1433,18 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       }
     }
 
-    await bot.sendMessage(chatId, `✅ <b>উত্তোলন অনুরোধ সফলভাবে জমা হয়েছে!</b>\n\n💵 পরিমাণ: ৳<b>${amount}</b> Taka\n🏦 ওয়ালেট: <code>${num}</code> (${method})\n\n⏳ এডমিন কিছুক্ষণের মধ্যে চেক করে পেমেন্ট সম্পূর্ণ করে দেবেন। ধন্যবাদ!`);
+    await bot.sendMessage(
+      chatId,
+      `✅ <b>উত্তোলন অনুরোধ সফলভাবে জমা হয়েছে!</b>\n\n` +
+      `💵 <b>পরিমাণ:</b> ৳<b>${amount}</b> Taka\n` +
+      `🏦 <b>ওয়ালেট:</b> <code>${num}</code> (${method})\n\n` +
+      `⚡ <b>চার্জের বিবরণ:</b>\n` +
+      `• বিকাশ (bKash): ৳৫ চার্জ\n` +
+      `• নগদ (Nagad): ৳৫ চার্জ\n` +
+      `• রকেট (Rocket): সম্পূর্ণ ফ্রি (কোনো চার্জ নেই)\n\n` +
+      `⏳ এডমিন কিছুক্ষণের মধ্যে চেক করে পেমেন্ট সম্পূর্ণ করে দেবেন। ধন্যবাদ!`,
+      { parse_mode: "HTML" }
+    );
     
     state.step = "main_menu";
     state.withdrawData = undefined;

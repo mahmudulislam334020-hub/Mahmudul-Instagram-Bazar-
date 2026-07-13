@@ -27,6 +27,7 @@ export interface Submission {
   cookie?: string;
   firstName?: string;
   lastName?: string;
+  rate?: number;
 }
 
 export interface Withdrawal {

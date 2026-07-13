@@ -226,6 +226,9 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const totalEarned = userSubmissions
     .filter(s => s.status === "approved")
     .reduce((sum, s) => {
+      if (s.rate !== undefined) {
+        return sum + s.rate;
+      }
       const isFacebook = s.category === "facebook";
       const rate = isFacebook ? facebookRatePerId : ratePerId;
       return sum + rate;
@@ -1091,6 +1094,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
+      // Get current settings
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+      const fbRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
+
       const newSub = {
         username: fd.uid,
         password: fd.password || "",
@@ -1103,16 +1112,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         submittedBy: profile.walletNumber || String(chatId),
         telegramChatId: String(chatId),
         status: 'pending' as const,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        rate: fbRate
       };
 
       await addDoc(collection(db, "submissions"), newSub);
-
-      // Get current settings
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-      const fbRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
 
       const escapeHtml = (unsafe: string = "") => {
         return String(unsafe)
@@ -1183,6 +1187,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
+      // Get current rate
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
+      const ratePerId = settings.ratePerId || 45;
+
       const newSub = {
         username,
         password,
@@ -1190,16 +1200,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         submittedBy: profile.walletNumber || String(chatId),
         telegramChatId: String(chatId),
         status: 'pending',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        category: 'instagram' as const,
+        rate: ratePerId
       };
 
       await addDoc(collection(db, "submissions"), newSub);
-
-      // Get current rate
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
-      const ratePerId = settings.ratePerId || 45;
 
       const escapeHtml = (unsafe: string = "") => {
         return String(unsafe)

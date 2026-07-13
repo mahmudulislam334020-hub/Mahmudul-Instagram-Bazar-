@@ -443,7 +443,9 @@ export default function App() {
         twoFactorKey: twoFactorKey.trim(),
         status: "pending",
         createdAt: new Date().toISOString(),
-        submittedBy: workerName
+        submittedBy: workerName,
+        category: "instagram",
+        rate: settings.ratePerId
       });
       setSubmissionStatus('success');
       setCredentials(null);
@@ -1023,6 +1025,9 @@ export default function App() {
   const calculateUserBalance = (name: string) => {
     const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
     const totalEarned = userApprovedSubs.reduce((sum, s) => {
+      if (s.rate !== undefined) {
+        return sum + s.rate;
+      }
       const isFacebook = s.category === 'facebook';
       const rate = isFacebook 
         ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
@@ -1041,6 +1046,23 @@ export default function App() {
   const calculateUserTotalEarned = (name: string) => {
     const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
     return userApprovedSubs.reduce((sum, s) => {
+      if (s.rate !== undefined) {
+        return sum + s.rate;
+      }
+      const isFacebook = s.category === 'facebook';
+      const rate = isFacebook 
+        ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+        : settings.ratePerId;
+      return sum + rate;
+    }, 0);
+  };
+
+  const calculateUserPendingEarned = (name: string) => {
+    const userPendingSubs = submissions.filter(s => s.submittedBy === name && s.status === 'pending');
+    return userPendingSubs.reduce((sum, s) => {
+      if (s.rate !== undefined) {
+        return sum + s.rate;
+      }
       const isFacebook = s.category === 'facebook';
       const rate = isFacebook 
         ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
@@ -1570,7 +1592,7 @@ export default function App() {
                   <div className="text-xs text-slate-300 space-y-1.5">
                     <span className="font-bold text-amber-500 uppercase tracking-widest block">আইডি ভেরিফিকেশন অপেক্ষমান (Under Verification Review)</span>
                     <p className="leading-relaxed text-[12px]">
-                      আপনার <strong>{getPendingCount(workerName)}টি আইডি সাবমিশন</strong> বর্তমানে এডমিন ভেরিফিকেশনের জন্য অপেক্ষায় (Pending) রয়েছে। এডমিন এগুলো চেক করে অনুমোদন (Approve) করলে আপনার উত্তোলনযোগ্য ব্যালেন্সে <strong>৳{getPendingCount(workerName) * settings.ratePerId} Taka</strong> যুক্ত হবে। আইডিগুলো এপ্রুভ হওয়ার পূর্বে আপনার উইথড্রযোগ্য ব্যালেন্স ৳০ দেখাবে। দয়া করে ধৈর্য ধরুন, ধন্যবাদ!
+                      আপনার <strong>{getPendingCount(workerName)}টি আইডি সাবমিশন</strong> বর্তমানে এডমিন ভেরিফিকেশনের জন্য অপেক্ষায় (Pending) রয়েছে। এডমিন এগুলো চেক করে অনুমোদন (Approve) করলে আপনার উত্তোলনযোগ্য ব্যালেন্সে <strong>৳{calculateUserPendingEarned(workerName)} Taka</strong> যুক্ত হবে। আইডিগুলো এপ্রুভ হওয়ার পূর্বে আপনার উইথড্রযোগ্য ব্যালেন্স ৳০ দেখাবে। দয়া করে ধৈর্য ধরুন, ধন্যবাদ!
                     </p>
                   </div>
                 </motion.div>

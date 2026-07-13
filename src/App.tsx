@@ -656,22 +656,48 @@ export default function App() {
   // Admin: Bulk Approve/Reject Submissions
   const handleBulkSubAction = async (newStatus: 'approved' | 'rejected') => {
     if (selectedSubIds.length === 0) return;
+    const subsToNotify: { [walletNumber: string]: typeof submissions } = {};
+
     for (const id of selectedSubIds) {
       await updateSubmissionStatus(id, newStatus);
       
       const sub = submissions.find(s => s.id === id);
       if (sub) {
+        if (!subsToNotify[sub.submittedBy]) {
+          subsToNotify[sub.submittedBy] = [];
+        }
+        subsToNotify[sub.submittedBy].push(sub);
+      }
+    }
+
+    // Send grouped/consolidated notifications
+    for (const walletNumber of Object.keys(subsToNotify)) {
+      const userSubs = subsToNotify[walletNumber];
+      if (userSubs.length === 1) {
+        const sub = userSubs[0];
         fetch("/api/telegram-direct-notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            targetWalletNumber: sub.submittedBy,
+            targetWalletNumber: walletNumber,
             type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
             details: { username: sub.username, category: sub.category }
           })
         }).catch(err => console.error("Error triggering user notification:", err));
+      } else if (userSubs.length > 1) {
+        const items = userSubs.map(s => ({ username: s.username, category: s.category }));
+        fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: walletNumber,
+            type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
+            items: items
+          })
+        }).catch(err => console.error("Error triggering user notification:", err));
       }
     }
+
     setSubmissions(prev => prev.map(s => selectedSubIds.includes(s.id || '') ? { ...s, status: newStatus } : s));
     setSelectedSubIds([]);
   };
@@ -709,6 +735,7 @@ export default function App() {
 
     let processedCount = 0;
     const updatedIds: string[] = [];
+    const subsToNotify: { [walletNumber: string]: typeof submissions } = {};
 
     for (const sub of matchingSubs) {
       if (!sub.id) continue;
@@ -716,16 +743,38 @@ export default function App() {
       updatedIds.push(sub.id);
       processedCount++;
 
-      // Notify user via Telegram
-      fetch("/api/telegram-direct-notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetWalletNumber: sub.submittedBy,
-          type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-          details: { username: sub.username, category: sub.category }
-        })
-      }).catch(err => console.error("Error triggering user notification:", err));
+      if (!subsToNotify[sub.submittedBy]) {
+        subsToNotify[sub.submittedBy] = [];
+      }
+      subsToNotify[sub.submittedBy].push(sub);
+    }
+
+    // Send grouped/consolidated notifications
+    for (const walletNumber of Object.keys(subsToNotify)) {
+      const userSubs = subsToNotify[walletNumber];
+      if (userSubs.length === 1) {
+        const sub = userSubs[0];
+        fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: walletNumber,
+            type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
+            details: { username: sub.username, category: sub.category }
+          })
+        }).catch(err => console.error("Error triggering user notification:", err));
+      } else if (userSubs.length > 1) {
+        const items = userSubs.map(s => ({ username: s.username, category: s.category }));
+        fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: walletNumber,
+            type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
+            items: items
+          })
+        }).catch(err => console.error("Error triggering user notification:", err));
+      }
     }
 
     // Update local state instantly

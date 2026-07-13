@@ -1,11 +1,31 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { initTelegramBot } from "./src/telegramBot.js";
 
+// Load configuration dynamically
+let projectId = "mahmudul-instagram-bazar";
+let databaseId = "(default)";
+
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (firebaseConfig.projectId) {
+      projectId = firebaseConfig.projectId;
+    }
+    if (firebaseConfig.firestoreDatabaseId) {
+      databaseId = firebaseConfig.firestoreDatabaseId;
+    }
+  }
+} catch (err) {
+  console.error("Error reading firebase-applet-config.json inside server.ts:", err);
+}
+
 async function getGlobalSettings() {
   try {
-    const url = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents/settings/global`;
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global`;
     const res = await fetch(url);
     if (!res.ok) {
       return null;
@@ -73,7 +93,7 @@ async function startServer() {
 
   // Direct notification to user about approval or rejection
   app.post("/api/telegram-direct-notify", async (req, res) => {
-    const { targetWalletNumber, type, details } = req.body;
+    const { targetWalletNumber, type, details, items } = req.body;
     try {
       const settings = await getGlobalSettings();
       if (!settings || !settings.telegramBotToken) {
@@ -83,7 +103,7 @@ async function startServer() {
       // Fetch profile from Firestore REST API
       let chatId: string | undefined;
 
-      const profileUrl = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents/profiles/${targetWalletNumber}`;
+      const profileUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/profiles/${targetWalletNumber}`;
       const profileRes = await fetch(profileUrl);
       if (profileRes.ok) {
         const profileData = await profileRes.json();
@@ -93,7 +113,7 @@ async function startServer() {
       // If not found or chat ID is missing, fall back to searching by walletNumber field using a structured query
       if (!chatId) {
         console.log(`Profile document not found directly by ID for user ${targetWalletNumber}, attempting structured query search...`);
-        const queryUrl = `https://firestore.googleapis.com/v1/projects/mahmudul-instagram-bazar/databases/(default)/documents:runQuery`;
+        const queryUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents:runQuery`;
         const queryRes = await fetch(queryUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -148,6 +168,42 @@ async function startServer() {
         text = `❌ <b>আপনার ${workName} বাতিল করা হয়েছে! (ID Rejected)</b>\n\n` +
                `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n\n` +
                `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিটি বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
+      } else if (type === "id_bulk_approved") {
+        const totalCount = items?.length || 0;
+        let itemsListText = "";
+        let totalAmount = 0;
+        
+        if (Array.isArray(items)) {
+          items.forEach((item: any) => {
+            const isFacebook = item.category === "facebook";
+            const rate = isFacebook 
+              ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+              : settings.ratePerId;
+            totalAmount += rate;
+            const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+            itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (৳${rate} Taka)\n`;
+          });
+        }
+
+        text = `✅ <b>আপনার ${totalCount} টি কাজ অনুমোদিত হয়েছে! (IDs Approved)</b>\n\n` +
+               itemsListText + `\n` +
+               `💵 <b>মোট জমা:</b> ৳<b>${totalAmount}</b> Taka\n` +
+               `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার শুরু করুন!`;
+      } else if (type === "id_bulk_rejected") {
+        const totalCount = items?.length || 0;
+        let itemsListText = "";
+        
+        if (Array.isArray(items)) {
+          items.forEach((item: any) => {
+            const isFacebook = item.category === "facebook";
+            const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+            itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (${isFacebook ? "ফেসবুক" : "ইনস্টাগ্রাম"})\n`;
+          });
+        }
+
+        text = `❌ <b>আপনার ${totalCount} টি কাজ বাতিল করা হয়েছে! (IDs Rejected)</b>\n\n` +
+               itemsListText + `\n` +
+               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিগুলো বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
       } else if (type === "withdraw_approved") {
         text = `💸 <b>আপনার টাকা উত্তোলনের অনুরোধটি সফলভাবে পেইড হয়েছে! (Withdraw Approved)</b>\n\n` +
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +

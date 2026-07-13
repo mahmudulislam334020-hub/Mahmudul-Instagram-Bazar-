@@ -1589,6 +1589,24 @@ export async function syncTelegramBot() {
     
     // Initialize bot with polling: false to cleanly delete webhook first
     const bot = new TelegramBot(token, { polling: false });
+
+    // Handle polling errors gracefully (especially 409 Conflict)
+    bot.on("polling_error", async (err: any) => {
+      const errMsg = err?.message || err?.code || "";
+      if (errMsg.includes("409 Conflict")) {
+        console.warn("⚠️ [Telegram Bot] Polling conflict (409) detected: Another bot instance is currently active.");
+        console.warn("🛑 Stopping polling on this server to prevent interfering with your active production bot.");
+        try {
+          if (bot.isPolling()) {
+            await bot.stopPolling();
+          }
+        } catch (stopErr) {
+          // Ignore
+        }
+      } else {
+        console.error("Telegram Bot Polling Error:", err);
+      }
+    });
     
     try {
       console.log("Deleting any active Telegram Webhook to enable fast polling...");

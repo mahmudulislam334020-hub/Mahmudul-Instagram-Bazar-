@@ -5,8 +5,8 @@ import firebaseConfig from "../firebase-applet-config.json";
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore (using default database of the project)
+const db = getFirestore(app);
 
 export { db };
 

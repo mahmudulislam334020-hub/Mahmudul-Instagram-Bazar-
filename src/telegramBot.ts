@@ -770,14 +770,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, 
         `📬 <b>আমাদের সাপোর্ট টিম (Support Team):</b>\n\n` +
         `যেকোনো সমস্যা, প্রশ্ন বা পেমেন্ট সংক্রান্ত সহায়তার জন্য আমাদের অফিশিয়াল সাপোর্ট আইডিতে যোগাযোগ করুন:\n\n` +
-        `📢 সাপোর্ট আইডি: <b>t.me/Mahmudulinstabazar</b>\n\n` +
+        `📢 সাপোর্ট আইডি: <b>t.me/Earnpointcustomercare</b>\n\n` +
         `সাপোর্ট আইডিতে সরাসরি মেসেজ দিতে নিচের বাটনে ক্লিক করুন। ধন্যবাদ!`,
         {
           parse_mode: "HTML",
           reply_markup: {
             inline_keyboard: [
               [
-                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Mahmudulinstabazar" }
+                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Earnpointcustomercare" }
               ]
             ]
           }

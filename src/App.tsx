@@ -1457,7 +1457,7 @@ export default function App() {
 
                   {/* Row 3, Col 2: 📞 সাপোর্ট (Olive-gray Background) */}
                   <a 
-                    href="https://t.me/Mahmudulinstabazar" 
+                    href="https://t.me/Earnpointcustomercare" 
                     target="_blank" 
                     rel="noreferrer"
                     className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center justify-center md:justify-start gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99] text-center"

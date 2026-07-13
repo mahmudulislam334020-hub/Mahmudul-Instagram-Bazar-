@@ -302,8 +302,7 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
     reply_markup: {
       keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" },
-          { text: "👥 ফেসবুকের কাজ" }
+          { text: "💼 কাজ" }
         ],
         [
           { text: "💰 ব্যালেন্স চেক" },
@@ -311,6 +310,28 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
         ],
         [
           { text: "📞 সাপোর্ট" }
+        ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  });
+}
+
+async function showWorkMenu(bot: TelegramBot, chatId: number) {
+  const text = `💼 <b>আপনার পছন্দের কাজটি নির্বাচন করুন:</b>\n\n` +
+               `👇 নিচে থেকে যেকোনো একটি কাজ শুরু করুন:`;
+  
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: {
+      keyboard: [
+        [
+          { text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" },
+          { text: "👥 ফেসবুকের কাজ" }
+        ],
+        [
+          { text: "🔙 মেইন মেনু" }
         ]
       ],
       resize_keyboard: true,
@@ -582,6 +603,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
   // --- 5. Step: Main Menu Actions ---
   if (state.step === "main_menu") {
+    if (text === "💼 কাজ" || text === "কাজ") {
+      await showWorkMenu(bot, chatId);
+      return;
+    }
+
     if (text === "👥 ফেসবুকের কাজ" || text === "ফেসবুকের কাজ") {
       let isWorkActive = true;
       try {
@@ -702,7 +728,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+              [{ text: "💼 কাজ" }],
               [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
               [{ text: "📞 সাপোর্ট" }]
             ],
@@ -778,7 +804,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+            [{ text: "💼 কাজ" }],
             [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
             [{ text: "📞 সাপোর্ট" }]
           ],
@@ -795,7 +821,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b> আপনার পর্যাপ্ত ব্যালেন্স নেই। বর্তমানে আপনার ব্যালেন্স ৳০ Taka।`, {
           reply_markup: {
             keyboard: [
-              [{ text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" }],
+              [{ text: "💼 কাজ" }],
               [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
               [{ text: "📞 সাপোর্ট" }]
             ],

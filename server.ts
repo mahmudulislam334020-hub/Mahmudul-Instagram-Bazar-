@@ -92,7 +92,7 @@ async function startServer() {
 
   // Direct notification to user about approval or rejection
   app.post("/api/telegram-direct-notify", async (req, res) => {
-    const { targetWalletNumber, type, details, items } = req.body;
+    const { targetWalletNumber, telegramChatId, type, details, items } = req.body;
     try {
       const settings = await getGlobalSettings();
       if (!settings || !settings.telegramBotToken) {
@@ -100,13 +100,15 @@ async function startServer() {
       }
 
       // Fetch profile from Firestore REST API
-      let chatId: string | undefined;
+      let chatId = telegramChatId;
 
-      const profileUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/profiles/${targetWalletNumber}`;
-      const profileRes = await fetch(profileUrl);
-      if (profileRes.ok) {
-        const profileData = await profileRes.json();
-        chatId = profileData.fields?.telegramChatId?.stringValue;
+      if (!chatId) {
+        const profileUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/profiles/${targetWalletNumber}`;
+        const profileRes = await fetch(profileUrl);
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          chatId = profileData.fields?.telegramChatId?.stringValue;
+        }
       }
 
       // If not found or chat ID is missing, fall back to searching by walletNumber field using a structured query

@@ -896,6 +896,7 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetWalletNumber: w.submittedBy,
+            telegramChatId: w.telegramChatId,
             type: newStatus === 'approved' ? 'withdraw_approved' : 'withdraw_rejected',
             details: { amount: w.amount, method: w.method, number: w.number }
           })

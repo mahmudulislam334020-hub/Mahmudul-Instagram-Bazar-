@@ -37,6 +37,7 @@ export interface Withdrawal {
   status: "pending" | "approved" | "rejected";
   createdAt: string;
   submittedBy: string;
+  telegramChatId?: string;
 }
 
 export interface AppSettings {

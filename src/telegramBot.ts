@@ -260,7 +260,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
     .filter(w => w.status === "pending")
     .reduce((sum, current) => sum + current.amount, 0);
 
-  const balance = totalEarned - approvedWithdrawn;
+  const balance = Math.max(0, totalEarned - approvedWithdrawn - pendingWithdrawn);
 
   return {
     approvedCount,
@@ -816,6 +816,21 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     if (text === "💸 ব্যালেন্স উত্তোলন") {
       const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+
+      if (stats.pendingWithdrawn > 0) {
+        await bot.sendMessage(chatId, `⚠️ <b>আপনার একটি উইথড্রয়াল অনুরোধ বর্তমানে পেন্ডিং রয়েছে!</b>\n\nসেটি সফল বা বাতিল হওয়ার আগে নতুন কোনো উইথড্র দিতে পারবেন না। পূর্বের উইথড্রটি সফল বা বাতিল হলে পুনরায় নতুন অনুরোধ করতে পারবেন। ধন্যবাদ!`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "💼 কাজ" }],
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "📞 সাপোর্ট" }]
+            ],
+            resize_keyboard: true
+          }
+        });
+        return;
+      }
 
       if (stats.balance <= 0) {
         await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b> আপনার পর্যাপ্ত ব্যালেন্স নেই। বর্তমানে আপনার ব্যালেন্স ৳০ Taka।`, {

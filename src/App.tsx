@@ -246,6 +246,28 @@ export default function App() {
   // System Settings Save animation states
   const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error' | 'saving'; text: string } | null>(null);
 
+  // Web App Custom 6-Button Menu Modals
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showReferralModal, setShowReferralModal] = useState(false);
+  const [showStatsModal, setShowStatsModal] = useState(false);
+  const [showWorkSelectModal, setShowWorkSelectModal] = useState(false);
+
+  // Admin Toast Notifications state
+  interface AdminToast {
+    id: string;
+    type: 'success' | 'error' | 'info';
+    message: string;
+  }
+  const [adminToasts, setAdminToasts] = useState<AdminToast[]>([]);
+
+  const showAdminToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = Date.now().toString() + Math.random().toString();
+    setAdminToasts(prev => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setAdminToasts(prev => prev.filter(t => t.id !== id));
+    }, 4500);
+  };
+
   // Sync settings and local states
   useEffect(() => {
     localStorage.setItem("user_wallet_number", userWalletNumber);
@@ -467,6 +489,15 @@ export default function App() {
       return;
     }
 
+    const hasPendingWithdraw = withdrawals.some(w => w.submittedBy === workerName && w.status === 'pending');
+    if (hasPendingWithdraw) {
+      setWithdrawMsg({ 
+        type: 'error', 
+        text: 'আপনার একটি উইথড্রয়াল অনুরোধ বর্তমানে পেন্ডিং রয়েছে। সেটি সফল বা বাতিল হওয়ার আগে নতুন উইথড্র দিতে পারবেন না।' 
+      });
+      return;
+    }
+
     const balance = calculateUserBalance(workerName);
     if (amount > balance) {
       setWithdrawMsg({ type: 'error', text: `আপনার পর্যাপ্ত ব্যালেন্স নেই। সর্বোচ্চ উত্তোলনযোগ্য: ৳${balance}` });
@@ -497,15 +528,28 @@ export default function App() {
     // Notify user via Telegram
     const sub = submissions.find(s => s.id === id);
     if (sub) {
-      fetch("/api/telegram-direct-notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetWalletNumber: sub.submittedBy,
-          type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-          details: { username: sub.username, category: sub.category }
-        })
-      }).catch(err => console.error("Error triggering user notification:", err));
+      try {
+        const res = await fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: sub.submittedBy,
+            type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
+            details: { username: sub.username, category: sub.category }
+          })
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          showAdminToast(`💬 টেলিগ্রাম মেসেজ পাঠানো হয়েছে! ইউজার: ${sub.submittedBy} (আইডি: ${sub.username})`, 'success');
+        } else if (data.status === "skipped") {
+          showAdminToast(`⚠️ মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+        } else {
+          showAdminToast(`❌ টেলিগ্রাম মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+        }
+      } catch (err) {
+        console.error("Error triggering user notification:", err);
+        showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
+      }
     }
 
     // update local state instantly
@@ -675,26 +719,52 @@ export default function App() {
       const userSubs = subsToNotify[walletNumber];
       if (userSubs.length === 1) {
         const sub = userSubs[0];
-        fetch("/api/telegram-direct-notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetWalletNumber: walletNumber,
-            type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-            details: { username: sub.username, category: sub.category }
-          })
-        }).catch(err => console.error("Error triggering user notification:", err));
+        try {
+          const res = await fetch("/api/telegram-direct-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetWalletNumber: walletNumber,
+              type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
+              details: { username: sub.username, category: sub.category }
+            })
+          });
+          const data = await res.json();
+          if (data.status === "success") {
+            showAdminToast(`💬 টেলিগ্রাম মেসেজ পাঠানো হয়েছে! ইউজার: ${walletNumber} (আইডি: ${sub.username})`, 'success');
+          } else if (data.status === "skipped") {
+            showAdminToast(`⚠️ মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+          } else {
+            showAdminToast(`❌ টেলিগ্রাম মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+          }
+        } catch (err) {
+          console.error("Error triggering user notification:", err);
+          showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
+        }
       } else if (userSubs.length > 1) {
         const items = userSubs.map(s => ({ username: s.username, category: s.category }));
-        fetch("/api/telegram-direct-notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetWalletNumber: walletNumber,
-            type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
-            items: items
-          })
-        }).catch(err => console.error("Error triggering user notification:", err));
+        try {
+          const res = await fetch("/api/telegram-direct-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetWalletNumber: walletNumber,
+              type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
+              items: items
+            })
+          });
+          const data = await res.json();
+          if (data.status === "success") {
+            showAdminToast(`💬 ১টি মেসেজে ${userSubs.length}টি কাজের বিবরণ পাঠানো হয়েছে! ইউজার: ${walletNumber}`, 'success');
+          } else if (data.status === "skipped") {
+            showAdminToast(`⚠️ মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+          } else {
+            showAdminToast(`❌ টেলিগ্রাম মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+          }
+        } catch (err) {
+          console.error("Error triggering user notification:", err);
+          showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
+        }
       }
     }
 
@@ -754,26 +824,52 @@ export default function App() {
       const userSubs = subsToNotify[walletNumber];
       if (userSubs.length === 1) {
         const sub = userSubs[0];
-        fetch("/api/telegram-direct-notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetWalletNumber: walletNumber,
-            type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-            details: { username: sub.username, category: sub.category }
-          })
-        }).catch(err => console.error("Error triggering user notification:", err));
+        try {
+          const res = await fetch("/api/telegram-direct-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetWalletNumber: walletNumber,
+              type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
+              details: { username: sub.username, category: sub.category }
+            })
+          });
+          const data = await res.json();
+          if (data.status === "success") {
+            showAdminToast(`💬 টেলিগ্রাম মেসেজ পাঠানো হয়েছে! ইউজার: ${walletNumber} (আইডি: ${sub.username})`, 'success');
+          } else if (data.status === "skipped") {
+            showAdminToast(`⚠️ মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+          } else {
+            showAdminToast(`❌ টেলিগ্রাম মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+          }
+        } catch (err) {
+          console.error("Error triggering user notification:", err);
+          showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
+        }
       } else if (userSubs.length > 1) {
         const items = userSubs.map(s => ({ username: s.username, category: s.category }));
-        fetch("/api/telegram-direct-notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetWalletNumber: walletNumber,
-            type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
-            items: items
-          })
-        }).catch(err => console.error("Error triggering user notification:", err));
+        try {
+          const res = await fetch("/api/telegram-direct-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetWalletNumber: walletNumber,
+              type: newStatus === 'approved' ? 'id_bulk_approved' : 'id_bulk_rejected',
+              items: items
+            })
+          });
+          const data = await res.json();
+          if (data.status === "success") {
+            showAdminToast(`💬 ১টি মেসেজে ${userSubs.length}টি কাজের বিবরণ পাঠানো হয়েছে! ইউজার: ${walletNumber}`, 'success');
+          } else if (data.status === "skipped") {
+            showAdminToast(`⚠️ মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+          } else {
+            showAdminToast(`❌ টেলিগ্রাম মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+          }
+        } catch (err) {
+          console.error("Error triggering user notification:", err);
+          showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
+        }
       }
     }
 
@@ -794,15 +890,28 @@ export default function App() {
     // Notify user via Telegram
     const w = withdrawals.find(w => w.id === id);
     if (w) {
-      fetch("/api/telegram-direct-notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetWalletNumber: w.submittedBy,
-          type: newStatus === 'approved' ? 'withdraw_approved' : 'withdraw_rejected',
-          details: { amount: w.amount, method: w.method, number: w.number }
-        })
-      }).catch(err => console.error("Error triggering withdraw notification:", err));
+      try {
+        const res = await fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: w.submittedBy,
+            type: newStatus === 'approved' ? 'withdraw_approved' : 'withdraw_rejected',
+            details: { amount: w.amount, method: w.method, number: w.number }
+          })
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          showAdminToast(`💸 উইথড্র মেসেজ পাঠানো হয়েছে! ইউজার: ${w.submittedBy} (৳${w.amount})`, 'success');
+        } else if (data.status === "skipped") {
+          showAdminToast(`⚠️ উইথড্র মেসেজ স্কিপ হয়েছে: ${data.message || 'বট কনফিগারেশন নেই'}`, 'info');
+        } else {
+          showAdminToast(`❌ উইথড্র মেসেজ পাঠানো ব্যর্থ হয়েছে।`, 'error');
+        }
+      } catch (err) {
+        console.error("Error triggering withdraw notification:", err);
+        showAdminToast(`❌ উইথড্র নোটিফিকেশন পাঠাতে সার্ভার ত্রুটি।`, 'error');
+      }
     }
 
     setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: newStatus } : w));
@@ -903,21 +1012,32 @@ export default function App() {
 
   // Helper calculation functions
   const calculateUserBalance = (name: string) => {
-    // Earn settings.ratePerId per approved account
-    const approvedCount = submissions.filter(s => s.submittedBy === name && s.status === 'approved').length;
-    const totalEarned = approvedCount * settings.ratePerId;
+    const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
+    const totalEarned = userApprovedSubs.reduce((sum, s) => {
+      const isFacebook = s.category === 'facebook';
+      const rate = isFacebook 
+        ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+        : settings.ratePerId;
+      return sum + rate;
+    }, 0);
     
-    // Deduct approved withdrawals
+    // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
     const withdrawnAmount = withdrawals
-      .filter(w => w.submittedBy === name && w.status === 'approved')
+      .filter(w => w.submittedBy === name && (w.status === 'approved' || w.status === 'pending'))
       .reduce((sum, current) => sum + current.amount, 0);
 
-    return totalEarned - withdrawnAmount;
+    return Math.max(0, totalEarned - withdrawnAmount);
   };
 
   const calculateUserTotalEarned = (name: string) => {
-    const approvedCount = submissions.filter(s => s.submittedBy === name && s.status === 'approved').length;
-    return approvedCount * settings.ratePerId;
+    const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
+    return userApprovedSubs.reduce((sum, s) => {
+      const isFacebook = s.category === 'facebook';
+      const rate = isFacebook 
+        ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+        : settings.ratePerId;
+      return sum + rate;
+    }, 0);
   };
 
   const getApprovedCount = (name: string) => {
@@ -1282,6 +1402,81 @@ export default function App() {
               {/* DASHBOARD TAB */}
               {activeTab === 'dashboard' && (
             <div className="space-y-6">
+              {/* Custom Telegram Bot style 6-Button Grid */}
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                      বট ড্যাশবোর্ড মেনু (Quick Bot Menu)
+                    </h3>
+                    <p className="text-[10px] text-slate-500 mt-0.5">কালারফুল বাটনগুলোর মাধ্যমে সরাসরি ফিচারে প্রবেশ করুন</p>
+                  </div>
+                  <span className="text-[9px] font-mono bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/20 uppercase tracking-widest">Bot View</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Row 1: 📋 কাজ ▸ (Crimson Red / Maroon Background) */}
+                  <button 
+                    onClick={() => setShowWorkSelectModal(true)}
+                    className="md:col-span-2 py-4 px-6 rounded-xl bg-[#8E2424] hover:bg-[#A33B3F] text-white font-bold text-sm shadow-md shadow-red-950/20 flex items-center justify-between border border-[#A93C3C] transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span className="text-base">📋</span>
+                      <span>কাজ শুরু করুন ▸</span>
+                    </span>
+                    <span className="text-xs bg-black/20 px-2 py-0.5 rounded font-mono">Select Work</span>
+                  </button>
+
+                  {/* Row 2, Col 1: 💵 ব্যালেন্স (Olive-gray Background) */}
+                  <button 
+                    onClick={() => setShowStatsModal(true)}
+                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="text-base">💵</span>
+                    <span>ব্যালেন্স চেক</span>
+                  </button>
+
+                  {/* Row 2, Col 2: 💰 টাকা উত্তোলন (Vibrant/Dark Green Background) */}
+                  <button 
+                    onClick={() => setActiveTab('withdraw')}
+                    className="py-3.5 px-5 rounded-xl bg-[#1E4D2B] hover:bg-[#256036] text-[#A7F3D0] font-bold text-sm shadow-md shadow-emerald-950/20 flex items-center gap-2.5 border border-[#235F35] transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="text-base">💰</span>
+                    <span>টাকা উত্তোলন</span>
+                  </button>
+
+                  {/* Row 3, Col 1: 🎁 My Referrals (Olive-gray Background) */}
+                  <button 
+                    onClick={() => setShowReferralModal(true)}
+                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="text-base">🎁</span>
+                    <span>My Referrals</span>
+                  </button>
+
+                  {/* Row 3, Col 2: 📞 সাপোর্ট (Olive-gray Background) */}
+                  <a 
+                    href="https://t.me/Mahmudulinstabazar" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center justify-center md:justify-start gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99] text-center"
+                  >
+                    <span className="text-base">📞</span>
+                    <span>সাপোর্ট</span>
+                  </a>
+
+                  {/* Row 4: 👶 আমি নতুন (Full Width Muted Gray) */}
+                  <button 
+                    onClick={() => setShowHelpModal(true)}
+                    className="md:col-span-2 py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center justify-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="text-base">👶</span>
+                    <span>আমি নতুন (ভিডিও গাইড)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Top Banner Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
@@ -1888,7 +2083,237 @@ export default function App() {
                 </motion.div>
               </div>
             )}
+
+            {/* Custom Modal: Work Selection */}
+            {showWorkSelectModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowWorkSelectModal(false)} className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-4">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Grid size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">কাজের ক্যাটাগরি নির্বাচন করুন</h3>
+                    <p className="text-xs text-slate-400 mt-1">যেকোনো একটি কাজ সম্পন্ন করে সহজেই ইনকাম শুরু করুন</p>
+                  </div>
+                  <div className="space-y-3 pt-2">
+                    <button 
+                      onClick={() => { setActiveTab('instagram'); setShowWorkSelectModal(false); }}
+                      className="w-full p-4 bg-gradient-to-r from-purple-900/40 to-indigo-900/20 hover:from-purple-900/60 hover:to-indigo-900/40 border border-purple-500/30 rounded-xl flex items-center gap-4 transition-all"
+                    >
+                      <div className="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-lg flex items-center justify-center">
+                        <Instagram size={20} />
+                      </div>
+                      <div className="text-left">
+                        <span className="font-bold text-white text-sm block">📸 ইনস্টাগ্রাম টু-এফএ কাজ</span>
+                        <span className="text-[11px] text-purple-300">প্রতি সঠিক আইডি সাবমিশনে ৳{settings.ratePerId} Taka</span>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => { 
+                        alert("ফেসবুক কাজ করার জন্য এডমিনের দেওয়া ইনস্ট্রাকশন ও দৈনিক পাসওয়ার্ড ব্যবহার করুন। আপনি ফেসবুক কন্ট্রোলের মাধ্যমে এডমিন ভিউ পাবেন।");
+                        setShowWorkSelectModal(false);
+                      }}
+                      className="w-full p-4 bg-gradient-to-r from-blue-900/40 to-indigo-900/20 hover:from-blue-900/60 hover:to-indigo-900/40 border border-blue-500/30 rounded-xl flex items-center gap-4 transition-all"
+                    >
+                      <div className="w-10 h-10 bg-blue-500/10 text-blue-400 rounded-lg flex items-center justify-center">
+                        <Facebook size={20} />
+                      </div>
+                      <div className="text-left">
+                        <span className="font-bold text-white text-sm block">👥 ফেসবুক আইডি কাজ</span>
+                        <span className="text-[11px] text-blue-300">প্রতি সঠিক আইডি সাবমিশনে ৳{settings.facebookRatePerId || settings.ratePerId} Taka</span>
+                      </div>
+                    </button>
+                  </div>
+                  <button onClick={() => setShowWorkSelectModal(false)} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors rounded-xl text-xs font-bold">
+                    বন্ধ করুন
+                  </button>
+                </motion.div>
+              </div>
+            )}
+
+            {/* Custom Modal: Detailed Balance Stats */}
+            {showStatsModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowStatsModal(false)} className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-4">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <DollarSign size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">ব্যালেন্স ও কাজের রিপোর্ট</h3>
+                    <p className="text-xs text-slate-400 mt-1">আপনার রিয়েল-টাইম কাজের বিবরণ ও মোট আয়</p>
+                  </div>
+
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-3 font-medium">
+                    <div className="flex justify-between text-xs text-slate-400 border-b border-slate-900 pb-2">
+                      <span>ওয়ালেট অ্যাকাউন্ট:</span>
+                      <span className="text-white font-mono">{workerName} ({userWalletType})</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">মোট আয় (Total Earned):</span>
+                      <span className="text-white font-bold">৳{calculateUserTotalEarned(workerName)} Taka</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">উত্তোলনযোগ্য ব্যালেন্স (Available):</span>
+                      <span className="text-emerald-400 font-extrabold">৳{calculateUserBalance(workerName)} Taka</span>
+                    </div>
+                    <div className="flex justify-between text-xs border-t border-slate-900 pt-2 text-slate-400">
+                      <span>অনুমোদিত সাবমিশন:</span>
+                      <span className="text-blue-400 font-bold">{getApprovedCount(workerName)}টি</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>অপেক্ষমান সাবমিশন:</span>
+                      <span className="text-amber-500 font-bold">{getPendingCount(workerName)}টি</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 bg-amber-500/5 p-3 rounded-lg border border-amber-500/10 leading-relaxed">
+                    ℹ️ প্রতি সঠিক আইডি এপ্রুভ হওয়ার পর ব্যালেন্সে সরাসরি টাকা যুক্ত হয়ে যায়। এডমিন চেক করার পূর্বে আইডি পেন্ডিং থাকবে।
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => { setActiveTab('withdraw'); setShowStatsModal(false); }} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all">
+                      টাকা উত্তোলন করুন
+                    </button>
+                    <button onClick={() => setShowStatsModal(false)} className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all">
+                      বন্ধ করুন
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+
+            {/* Custom Modal: My Referrals */}
+            {showReferralModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReferralModal(false)} className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-4">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Users size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">🎁 রেফারেল ইনকাম প্রোগ্রাম</h3>
+                    <p className="text-xs text-slate-400 mt-1">বন্ধুদের রেফার করে আজীবনে ইনকাম করুন ১০% কমিশন!</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">আপনার ব্যক্তিগত রেফারেল লিংক</label>
+                      <div className="flex gap-2">
+                        <div className="flex-grow bg-slate-950 border border-slate-800 p-3 rounded-lg font-mono text-xs text-indigo-400 tracking-tight truncate select-all">
+                          https://t.me/accounttradecenterXincome_bot?start=ref_{workerName || "user"}
+                        </div>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(`https://t.me/accounttradecenterXincome_bot?start=ref_${workerName || "user"}`);
+                            alert("রেফার লিংক কপি হয়েছে!");
+                          }}
+                          className="px-3 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-white"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-2 text-xs leading-relaxed text-slate-300">
+                      <p>📢 <b>কমিশন পলিসি:</b></p>
+                      <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                        <li>আপনার রেফার লিংকে ক্লিক করে কেউ আমাদের টেলিগ্রাম বটে জয়েন হলে সে আপনার রেফার হবে।</li>
+                        <li>সে যতগুলো সঠিক আইডি তৈরি করে সাবমিট করবে, প্রতি আইডির জন্য আপনি পাবেন ১০% অতিরিক্ত বোনাস কমিশন!</li>
+                        <li>এটি একটি আনলিমিটেড আজীবন অফার, রেফার করুন বেশি এবং আয় করুন দ্বিগুণ!</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <button onClick={() => setShowReferralModal(false)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all">
+                    বন্ধ করুন
+                  </button>
+                </motion.div>
+              </div>
+            )}
+
+            {/* Custom Modal: Help Guide */}
+            {showHelpModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowHelpModal(false)} className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-full max-w-md bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <AlertCircle size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">👶 আমি নতুন - কাজ শিখুন</h3>
+                    <p className="text-xs text-slate-400 mt-1">ধাপগুলো অনুসরণ করে সহজেই কাজ আয়ত্ত করুন</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Fake video block */}
+                    <div className="aspect-video bg-slate-950 border border-slate-850 rounded-xl flex flex-col items-center justify-center p-4 relative overflow-hidden group cursor-pointer">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10"></div>
+                      <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center text-white z-20 group-hover:scale-110 transition-transform">
+                        <span className="text-xl pl-0.5">▶</span>
+                      </div>
+                      <span className="z-20 text-xs text-slate-200 font-bold mt-2">টিউটোরিয়াল ভিডিও (Video Guide)</span>
+                      <span className="z-20 text-[10px] text-slate-500">How to create Instagram 2FA accounts</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">ধাপসমূহ (Step-by-step Guides):</h4>
+                      <div className="space-y-2 text-xs text-slate-400">
+                        <div className="flex gap-2">
+                          <span className="w-5 h-5 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center shrink-0 font-bold">১</span>
+                          <p>ড্যাশবোর্ডের <b>"কাজ শুরু করুন"</b> বাটনে চাপ দিন, সিস্টেম আপনাকে একটি র্যান্ডম ইউজারনেম ও পাসওয়ার্ড দিয়ে দিবে।</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="w-5 h-5 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center shrink-0 font-bold">২</span>
+                          <p>এই ক্রেডেনশিয়াল কপি করে ইনস্টাগ্রাম অ্যাপে যান এবং নতুন অ্যাকাউন্ট খুলুন।</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="w-5 h-5 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center shrink-0 font-bold">৩</span>
+                          <p>অ্যাকাউন্টের সেটিংস এ গিয়ে ২-ফ্যাক্টর অথেনটিকেশন (2FA Key) চালু করুন এবং পাওয়া Secret Key টি আমাদের বক্সে পেস্ট করুন।</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="w-5 h-5 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center shrink-0 font-bold">৪</span>
+                          <p>আমাদের জেনারেট করা ৬ সংখ্যার কোড ইনস্টাগ্রামে ইনপুট দিয়ে অ্যাকাউন্ট ভেরিফাই করুন এবং অ্যাডমিনে জমা দিন।</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button onClick={() => setShowHelpModal(false)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all">
+                    বন্ধ করুন
+                  </button>
+                </motion.div>
+              </div>
+            )}
           </AnimatePresence>
+
+          {/* Admin Toast Notifications */}
+          <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
+            <AnimatePresence>
+              {adminToasts.map((toast) => (
+                <motion.div
+                  key={toast.id}
+                  initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                  className={`p-4 rounded-xl shadow-2xl border text-xs font-bold flex items-center gap-3 pointer-events-auto backdrop-blur-md ${
+                    toast.type === 'success' 
+                      ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/30' 
+                      : toast.type === 'error'
+                      ? 'bg-red-950/90 text-red-300 border-red-500/30'
+                      : 'bg-indigo-950/90 text-indigo-300 border-indigo-500/30'
+                  }`}
+                >
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${
+                    toast.type === 'success' ? 'bg-emerald-400' : toast.type === 'error' ? 'bg-red-400' : 'bg-indigo-400'
+                  }`} />
+                  <div className="flex-1 leading-relaxed">{toast.message}</div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
     </div>

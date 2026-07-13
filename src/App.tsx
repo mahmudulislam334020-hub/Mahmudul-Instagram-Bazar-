@@ -461,6 +461,14 @@ export default function App() {
     setWithdrawMsg(null);
     const amount = parseFloat(withdrawAmount);
 
+    if (settings.withdrawalsEnabled === false) {
+      setWithdrawMsg({
+        type: 'error',
+        text: '⚠️ দুঃখিত, অ্যাডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।'
+      });
+      return;
+    }
+
     // Enforce safety constraints
     if (activeWalletNumber !== userWalletNumber) {
       setWithdrawMsg({ 
@@ -1769,6 +1777,12 @@ export default function App() {
                 <h3 className="text-lg font-bold text-white">টাকা উত্তোলন করুন (Withdraw Cash)</h3>
                 
                 <form onSubmit={handleWithdrawRequest} className="space-y-4">
+                  {settings.withdrawalsEnabled === false && (
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs font-bold leading-relaxed">
+                      ⚠️ অ্যাডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।
+                    </div>
+                  )}
+
                   {/* Select Platform Payment Method */}
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">উত্তোলন মাধ্যম (Method) - স্থায়ী লক 🔒</label>
@@ -1805,8 +1819,9 @@ export default function App() {
                       type="number" 
                       placeholder={`৳ সর্বনিম্ন ৳${settings.minWithdraw || 50}`}
                       value={withdrawAmount}
+                      disabled={settings.withdrawalsEnabled === false}
                       onChange={(e) => setWithdrawAmount(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+                      className="w-full bg-slate-950 border border-slate-800 disabled:opacity-50 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -1819,9 +1834,10 @@ export default function App() {
 
                   <button 
                     type="submit"
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-all text-sm"
+                    disabled={settings.withdrawalsEnabled === false}
+                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all text-sm"
                   >
-                    উত্তোলন অনুরোধ পাঠান (Submit Request)
+                    {settings.withdrawalsEnabled === false ? 'উত্তোলন বন্ধ রয়েছে' : 'উত্তোলন অনুরোধ পাঠান (Submit Request)'}
                   </button>
                 </form>
               </div>

@@ -861,6 +861,25 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (text === "💸 ব্যালেন্স উত্তোলন") {
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      const settings = settingsSnap.exists() ? settingsSnap.data() : { withdrawalsEnabled: true };
+
+      if (settings.withdrawalsEnabled === false) {
+        await bot.sendMessage(chatId, `⚠️ <b>দুঃখিত!</b>\n\nএডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন। ধন্যবাদ!`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "💼 কাজ" }],
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "📞 সাপোর্ট" }]
+            ],
+            resize_keyboard: true
+          }
+        });
+        return;
+      }
+
       const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 
       if (stats.pendingWithdrawn > 0) {
@@ -1429,6 +1448,19 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
   // --- Step: Awaiting Withdraw Amount ---
   if (state.step === "awaiting_withdraw_amount") {
+    const settingsRef = doc(db, "settings", "global");
+    const settingsSnap = await getDoc(settingsRef);
+    const settings = settingsSnap.exists() ? settingsSnap.data() : { withdrawalsEnabled: true };
+
+    if (settings.withdrawalsEnabled === false) {
+      state.step = "main_menu";
+      state.withdrawData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, `⚠️ <b>দুঃখিত!</b>\n\nএডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। আপনার উইথড্র প্রক্রিয়াটি বাতিল করা হলো। অনুগ্রহ করে পরে আবার চেষ্টা করুন। ধন্যবাদ!`, { parse_mode: "HTML" });
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
     if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
       state.step = "main_menu";
       state.withdrawData = undefined;
@@ -1484,16 +1516,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
                       `📅 <b>সময়:</b> ${new Date().toLocaleString()}\n\n` +
                       `চেক করুন এবং অনুমোদন করুন!`;
 
-    const settingsRef = doc(db, "settings", "global");
-    const settingsSnap = await getDoc(settingsRef);
-    if (settingsSnap.exists()) {
-      const settings = settingsSnap.data();
-      if (settings.telegramBotToken && settings.telegramChatId) {
-        try {
-          await bot.sendMessage(settings.telegramChatId, adminText, { parse_mode: "HTML" });
-        } catch (err) {
-          console.warn("Error notifying admin:", err);
-        }
+    if (settings && settings.telegramBotToken && settings.telegramChatId) {
+      try {
+        await bot.sendMessage(settings.telegramChatId, adminText, { parse_mode: "HTML" });
+      } catch (err) {
+        console.warn("Error notifying admin:", err);
       }
     }
 

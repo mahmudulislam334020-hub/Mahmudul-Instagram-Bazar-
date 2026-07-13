@@ -61,6 +61,27 @@ export default function AdminBot({
                 className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
               />
             </div>
+
+            {/* Withdraw Activation/Deactivation Option */}
+            <div className="bg-slate-950/40 border border-slate-850 p-4 rounded-xl flex items-center justify-between mt-1">
+              <div className="space-y-0.5">
+                <span className="text-[11px] font-bold text-slate-300 block">টাকা উত্তোলন অপশন (Withdrawal Status)</span>
+                <span className="text-[10px] text-slate-500 block">
+                  {settings.withdrawalsEnabled !== false 
+                    ? "🟢 বর্তমানে টাকা উত্তোলন সচল রয়েছে" 
+                    : "🔴 বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রয়েছে"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppSettings(prev => ({ ...prev, withdrawalsEnabled: prev.withdrawalsEnabled === false ? true : false }))}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${settings.withdrawalsEnabled !== false ? 'bg-emerald-600' : 'bg-slate-800'}`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.withdrawalsEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Telegram token */}

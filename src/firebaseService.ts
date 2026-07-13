@@ -54,6 +54,7 @@ export interface AppSettings {
   facebookPassword?: string;
   facebookWorkActive?: boolean;
   facebookRatePerId?: number;
+  withdrawalsEnabled?: boolean;
 }
 
 export interface UserProfile {
@@ -97,7 +98,8 @@ const getFallbackSettings = (): AppSettings => {
     facebookLastName: "",
     facebookPassword: "",
     facebookWorkActive: true,
-    facebookRatePerId: 45
+    facebookRatePerId: 45,
+    withdrawalsEnabled: true
   };
 };
 

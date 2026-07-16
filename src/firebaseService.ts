@@ -56,6 +56,7 @@ export interface AppSettings {
   facebookWorkActive?: boolean;
   facebookRatePerId?: number;
   withdrawalsEnabled?: boolean;
+  webhookUrl?: string;
 }
 
 export interface UserProfile {

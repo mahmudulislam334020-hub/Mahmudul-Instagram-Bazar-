@@ -1664,10 +1664,15 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
 
 let currentBot: TelegramBot | null = null;
 let currentBotToken: string | null = null;
+let currentWebhookUrl: string | null = null;
 let loggedDevWarning = false;
 
-export function handleWebhookUpdate(update: any) {
+export async function handleWebhookUpdate(update: any) {
   console.log("Received Webhook Update:", JSON.stringify(update));
+  if (!currentBot) {
+    console.log("Webhook received but bot is not initialized. Syncing bot first...");
+    await syncTelegramBot();
+  }
   if (currentBot) {
     currentBot.processUpdate(update);
   } else {
@@ -1683,14 +1688,24 @@ export async function syncTelegramBot() {
 
     const settings = settingsSnap.data();
     const token = settings.telegramBotToken ? String(settings.telegramBotToken).trim() : null;
+    const webhookUrl = settings.webhookUrl ? String(settings.webhookUrl).trim().replace(/\/$/, "") : null;
 
-    if (token === currentBotToken) {
-      return; // Token hasn't changed, do nothing
+    if (token === currentBotToken && webhookUrl === currentWebhookUrl) {
+      // If we are in polling mode and not currently polling (due to temporary conflict), let's attempt to restart polling!
+      if (!webhookUrl && currentBot && !currentBot.isPolling()) {
+        console.log("[Telegram Bot] Polling was inactive. Retrying startPolling...");
+        try {
+          await currentBot.startPolling();
+        } catch (pollErr) {
+          console.error("[Telegram Bot] Failed to resume polling:", pollErr);
+        }
+      }
+      return; // Token and webhook url haven't changed, skip rebuild
     }
 
-    // Token changed or bot is not started yet
+    // Token or Webhook changed, or bot is not started yet
     if (currentBot) {
-      console.log("Stopping previous Telegram Bot...");
+      console.log("Stopping previous Telegram Bot instance...");
       try {
         if (currentBot.isPolling()) {
           await currentBot.stopPolling();
@@ -1702,6 +1717,7 @@ export async function syncTelegramBot() {
     }
 
     currentBotToken = token;
+    currentWebhookUrl = webhookUrl;
 
     if (!token) {
       console.log("No Telegram Bot token configured in Firebase settings.");
@@ -1710,36 +1726,8 @@ export async function syncTelegramBot() {
 
     console.log(`Starting Telegram Bot with token: ${token.substring(0, 6)}...`);
     
-    // Initialize bot with polling: false to cleanly delete webhook first
+    // Initialize bot with polling: false
     const bot = new TelegramBot(token, { polling: false });
-
-    // Handle polling errors gracefully (especially 409 Conflict)
-    bot.on("polling_error", async (err: any) => {
-      const errMsg = err?.message || err?.code || "";
-      if (errMsg.includes("409 Conflict")) {
-        console.warn("⚠️ [Telegram Bot] Polling conflict (409) detected: Another bot instance is currently active.");
-        console.warn("🛑 Stopping polling on this server to prevent interfering with your active production bot.");
-        try {
-          if (bot.isPolling()) {
-            await bot.stopPolling();
-          }
-        } catch (stopErr) {
-          // Ignore
-        }
-      } else {
-        console.error("Telegram Bot Polling Error:", err);
-      }
-    });
-    
-    try {
-      console.log("Deleting any active Telegram Webhook to enable fast polling...");
-      await bot.deleteWebHook();
-    } catch (whErr) {
-      console.error("Error deleting webhook:", whErr);
-    }
-
-    // Start polling cleanly
-    await bot.startPolling();
     currentBot = bot;
 
     // Handle incoming messages
@@ -1768,7 +1756,47 @@ export async function syncTelegramBot() {
       }
     });
 
-    console.log("Telegram Bot successfully initialized and polling started.");
+    if (webhookUrl) {
+      const fullWebhookUrl = `${webhookUrl}/api/telegram-webhook`;
+      console.log(`[Telegram Bot] Setting up Webhook mode pointing to: ${fullWebhookUrl}`);
+      try {
+        await bot.setWebHook(fullWebhookUrl);
+        console.log("[Telegram Bot] Webhook registered successfully.");
+      } catch (whErr) {
+        console.error("[Telegram Bot] Error setting Webhook:", whErr);
+      }
+    } else {
+      console.log("[Telegram Bot] Setting up Polling mode...");
+      
+      // Handle polling errors gracefully (especially 409 Conflict)
+      bot.on("polling_error", async (err: any) => {
+        const errMsg = err?.message || err?.code || "";
+        if (errMsg.includes("409 Conflict")) {
+          console.warn("⚠️ [Telegram Bot] Polling conflict (409) detected: Another bot instance is currently active.");
+          console.warn("🛑 Stopping polling on this server to prevent interfering with your active production bot.");
+          try {
+            if (bot.isPolling()) {
+              await bot.stopPolling();
+            }
+          } catch (stopErr) {
+            // Ignore
+          }
+        } else {
+          console.error("Telegram Bot Polling Error:", err);
+        }
+      });
+      
+      try {
+        console.log("Deleting any active Telegram Webhook to enable fast polling...");
+        await bot.deleteWebHook();
+      } catch (whErr) {
+        console.error("Error deleting webhook:", whErr);
+      }
+
+      // Start polling cleanly
+      await bot.startPolling();
+      console.log("Telegram Bot successfully initialized and polling started.");
+    }
 
   } catch (error) {
     console.error("Error syncing Telegram bot settings:", error);

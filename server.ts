@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { initTelegramBot } from "./src/telegramBot.js";
+import { initTelegramBot, handleWebhookUpdate } from "./src/telegramBot.js";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
@@ -45,7 +45,8 @@ async function getGlobalSettings() {
       facebookLastName: fields.facebookLastName?.stringValue || "",
       facebookPassword: fields.facebookPassword?.stringValue || "",
       facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
-      facebookRatePerId: fields.facebookRatePerId?.integerValue ? parseInt(fields.facebookRatePerId.integerValue) : (fields.facebookRatePerId?.doubleValue ? parseFloat(fields.facebookRatePerId.doubleValue) : 45)
+      facebookRatePerId: fields.facebookRatePerId?.integerValue ? parseInt(fields.facebookRatePerId.integerValue) : (fields.facebookRatePerId?.doubleValue ? parseFloat(fields.facebookRatePerId.doubleValue) : 45),
+      webhookUrl: fields.webhookUrl?.stringValue || ""
     };
   } catch (err) {
     console.error("Error reading global settings from REST API:", err);
@@ -71,6 +72,17 @@ async function startServer() {
   // API routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Telegram webhook route to process incoming bot updates
+  app.post("/api/telegram-webhook", async (req, res) => {
+    try {
+      await handleWebhookUpdate(req.body);
+      res.status(200).json({ ok: true });
+    } catch (err: any) {
+      console.error("Webhook route error:", err);
+      res.status(500).json({ error: err?.message || "Internal Webhook Error" });
+    }
   });
 
   // Verify Admin Password safely on the server side

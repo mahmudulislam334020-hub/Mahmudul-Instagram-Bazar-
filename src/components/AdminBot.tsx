@@ -163,6 +163,21 @@ export default function AdminBot({
             </p>
           </div>
 
+          {/* Force Join Group Username */}
+          <div>
+            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Force Join Group / Channel Username (বাধ্যতামূলক জয়েন গ্রুপ)</label>
+            <input 
+              type="text"
+              placeholder="e.g. @accounttradecenterXincome (অফ করতে disabled লিখুন)"
+              value={settings.forceJoinGroup !== undefined ? settings.forceJoinGroup : '@accounttradecenterXincome'}
+              onChange={(e) => setAppSettings(prev => ({ ...prev, forceJoinGroup: e.target.value }))}
+              className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all font-mono text-xs"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              📢 যে চ্যানেল/গ্রুপে মেম্বার জয়েন না হলে বট চলবে না। ফোর্স জয়েন বন্ধ রাখতে চাইলে <code>disabled</code> লিখে সেভ করুন।
+            </p>
+          </div>
+
           {/* Telegram Webhook / Vercel / Render URL */}
           <div>
             <div className="flex items-center justify-between mb-1">

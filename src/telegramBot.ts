@@ -349,6 +349,27 @@ const membershipCache = new Map<number, { isMember: boolean; timestamp: number }
 const CACHE_TTL_MS = 120000; // 2 minutes cache TTL
 
 async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ success: boolean; isMember: boolean; error?: string }> {
+  let targetGroup = "@accounttradecenterXincome";
+  try {
+    const settingsSnap = await getDoc(doc(db, "settings", "global"));
+    if (settingsSnap.exists()) {
+      const s = settingsSnap.data();
+      if (s.forceJoinGroup !== undefined) {
+        targetGroup = String(s.forceJoinGroup).trim();
+      }
+    }
+  } catch (e) {
+    // ignore fetch error
+  }
+
+  if (!targetGroup || targetGroup.toLowerCase() === "disabled" || targetGroup.toLowerCase() === "none") {
+    return { success: true, isMember: true };
+  }
+
+  if (!targetGroup.startsWith("@") && !targetGroup.startsWith("-100")) {
+    targetGroup = "@" + targetGroup;
+  }
+
   const cached = membershipCache.get(chatId);
   const now = Date.now();
   if (cached && (now - cached.timestamp < CACHE_TTL_MS) && cached.isMember) {
@@ -356,8 +377,8 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
   }
 
   try {
-    console.log("Checking membership for chat ID (as user_id):", chatId);
-    const member = await bot.getChatMember("@accounttradecenterXincome", chatId);
+    console.log(`Checking membership for chat ID ${chatId} in group ${targetGroup}`);
+    const member = await bot.getChatMember(targetGroup, chatId);
     const validStatuses = ["creator", "administrator", "member", "restricted"];
     const isMember = validStatuses.includes(member.status);
     
@@ -365,8 +386,10 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
     membershipCache.set(chatId, { isMember, timestamp: now });
     return { success: true, isMember };
   } catch (err: any) {
-    console.error("Error verifying group membership for chat:", chatId, err?.message || err);
-    return { success: false, isMember: false, error: err?.message || String(err) };
+    console.error(`Error verifying group membership for chat ${chatId} in ${targetGroup}:`, err?.message || err);
+    // CRITICAL FIX: If Telegram API throws an error (e.g. Bot is not Admin in group or Chat not found),
+    // do NOT block all users permanently! Fail open with warning so the bot remains fully responsive.
+    return { success: false, isMember: true, error: err?.message || String(err) };
   }
 }
 
@@ -516,26 +539,10 @@ async function handleAdminFacebookCommand(bot: TelegramBot, chatId: number) {
 }
 
 async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, msg: any) {
-  // Check Force Join first
-  const membership = await isUserMemberOfGroup(bot, chatId);
-  if (!membership.isMember) {
-    if (!membership.success) {
-      // API call failed - bot is likely not an admin or chat username is invalid
-      await bot.sendMessage(chatId, 
-        `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
-        `টেলিগ্রাম বটের গ্রুপ মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
-        `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
-        `১. আপনার টেলিগ্রাম বটকে অবশ্যই <b>@accounttradecenterXincome</b> গ্রুপ বা চ্যানেলে <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n` +
-        `২. বটকে অ্যাডমিন না বানালে টেলিগ্রাম সিকিউরিটি নিয়মানুযায়ী বট কোনো মেম্বারের তথ্য অ্যাক্সেস করতে পারে না।\n\n` +
-        `<i>(আপনি যদি এই বটের মালিক হন, তবে এখনই বটটিকে গ্রুপে অ্যাডমিন হিসেবে যুক্ত করুন এবং আবার ট্রাই করুন)</i>`,
-        { parse_mode: "HTML" }
-      );
-    }
-    await showForceJoinPrompt(bot, chatId, !membership.success);
-    return;
-  }
+  const adminChatIdStr = await getAdminChatId();
+  const isAdmin = String(chatId) === adminChatIdStr || chatId === 7990244560;
 
-  // Admin Commands
+  // Admin Commands (Always accessible)
   if (text === "/adminq") {
     await handleAdminInstagramCommand(bot, chatId);
     return;
@@ -545,8 +552,31 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     return;
   }
 
+  // Check Force Join (Bypassed for Admin users)
+  if (!isAdmin) {
+    const membership = await isUserMemberOfGroup(bot, chatId);
+    if (!membership.isMember) {
+      if (!membership.success) {
+        // API call failed - bot is likely not an admin or chat username is invalid
+        await bot.sendMessage(chatId, 
+          `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
+          `টেলিগ্রাম বটের গ্রুপ মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
+          `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
+          `১. আপনার টেলিগ্রাম বটকে অবশ্যই গ্রুপ বা চ্যানেলে <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n\n` +
+          `<i>(যদি গ্রুপে বটকে অ্যাডমিন করা থাকে, তবে নিচে ভেরিফাই বাটনে চাপ দিন)</i>`,
+          { parse_mode: "HTML" }
+        );
+      }
+      await showForceJoinPrompt(bot, chatId, !membership.success);
+      return;
+    }
+  }
+
+  const cleanText = text ? text.trim() : "";
+  const lowerText = cleanText.toLowerCase();
+
   // If user sends /start command, clear any state and re-initialize
-  if (text.startsWith("/start")) {
+  if (lowerText === "/start" || lowerText === "start" || lowerText.startsWith("/start") || lowerText.startsWith("start")) {
     userStates.delete(chatId);
     
     const parts = text.split(" ");

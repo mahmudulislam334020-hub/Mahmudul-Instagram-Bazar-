@@ -57,6 +57,7 @@ export interface AppSettings {
   facebookRatePerId?: number;
   withdrawalsEnabled?: boolean;
   webhookUrl?: string;
+  forceJoinGroup?: string;
 }
 
 export interface UserProfile {

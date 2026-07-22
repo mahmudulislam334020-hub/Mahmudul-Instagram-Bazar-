@@ -1716,7 +1716,7 @@ export async function syncTelegramBot() {
     const token = settings.telegramBotToken ? String(settings.telegramBotToken).trim() : null;
     const webhookUrl = settings.webhookUrl ? String(settings.webhookUrl).trim().replace(/\/$/, "") : null;
 
-    if (token === currentBotToken && webhookUrl === currentWebhookUrl) {
+    if (currentBot && token === currentBotToken && webhookUrl === currentWebhookUrl) {
       // If we are in polling mode and not currently polling (due to temporary conflict), let's attempt to restart polling!
       if (!webhookUrl && currentBot && !currentBot.isPolling()) {
         console.log("[Telegram Bot] Polling was inactive. Retrying startPolling...");

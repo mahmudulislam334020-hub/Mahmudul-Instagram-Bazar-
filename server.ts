@@ -77,13 +77,34 @@ app.use(express.json());
   });
 
   // Telegram webhook route to process incoming bot updates
-  app.post("/api/telegram-webhook", async (req, res) => {
+  app.all(["/api/telegram-webhook", "/telegram-webhook"], async (req, res) => {
+    if (req.method === "GET") {
+      return res.status(200).json({ ok: true, message: "Telegram Webhook Endpoint is active and working." });
+    }
     try {
       await handleWebhookUpdate(req.body);
       res.status(200).json({ ok: true });
     } catch (err: any) {
       console.error("Webhook route error:", err);
       res.status(500).json({ error: err?.message || "Internal Webhook Error" });
+    }
+  });
+
+  // Check active Webhook Status directly from Telegram API
+  app.get("/api/telegram-webhook-status", async (req, res) => {
+    try {
+      const settings = await getGlobalSettings();
+      if (!settings || !settings.telegramBotToken) {
+        return res.status(400).json({ error: "Telegram Bot Token is not configured." });
+      }
+
+      const statusUrl = `https://api.telegram.org/bot${settings.telegramBotToken}/getWebhookInfo`;
+      const response = await fetch(statusUrl);
+      const data = await response.json();
+      res.status(200).json(data);
+    } catch (err: any) {
+      console.error("Error checking telegram webhook status:", err);
+      res.status(500).json({ error: err?.message || "Failed to check webhook status" });
     }
   });
 
@@ -96,9 +117,13 @@ app.use(express.json());
       }
 
       const { webhookUrl } = req.body;
-      const targetUrl = (webhookUrl !== undefined ? webhookUrl : (settings.webhookUrl || "")).trim().replace(/\/$/, "");
+      let rawUrl = (webhookUrl !== undefined ? webhookUrl : (settings.webhookUrl || "")).trim().replace(/\/$/, "");
 
-      if (!targetUrl) {
+      if (rawUrl && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+        rawUrl = `https://${rawUrl}`;
+      }
+
+      if (!rawUrl) {
         // Delete webhook to return to polling
         const deleteUrl = `https://api.telegram.org/bot${settings.telegramBotToken}/deleteWebhook`;
         const deleteRes = await fetch(deleteUrl);
@@ -106,7 +131,7 @@ app.use(express.json());
         return res.status(200).json({ success: true, mode: "polling", telegramResponse: deleteData });
       }
 
-      const fullWebhookUrl = `${targetUrl}/api/telegram-webhook`;
+      const fullWebhookUrl = `${rawUrl}/api/telegram-webhook`;
       const setUrl = `https://api.telegram.org/bot${settings.telegramBotToken}/setWebhook?url=${encodeURIComponent(fullWebhookUrl)}`;
       const response = await fetch(setUrl);
       const data = await response.json();

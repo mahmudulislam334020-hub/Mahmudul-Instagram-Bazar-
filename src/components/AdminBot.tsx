@@ -37,6 +37,48 @@ export default function AdminBot({
   isBroadcasting,
   broadcastStatus
 }: AdminBotProps) {
+  const [testingWebhook, setTestingWebhook] = React.useState(false);
+  const [webhookInfo, setWebhookInfo] = React.useState<{ type: 'success' | 'error' | 'info'; text: string; raw?: any } | null>(null);
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true);
+    setWebhookInfo(null);
+    try {
+      const res = await fetch("/api/telegram-webhook-status");
+      const data = await res.json();
+      if (data.ok && data.result) {
+        const info = data.result;
+        if (info.url) {
+          let errText = "";
+          if (info.last_error_message) {
+            errText = `\n⚠️ টেলিগ্রাম সতর্কতা: ${info.last_error_message}`;
+          }
+          setWebhookInfo({
+            type: 'success',
+            text: `✅ টেলিগ্রাম Webhook সক্রিয় আছে!\n🌐 URL: ${info.url}\n📬 পেন্ডিং মেসেজ: ${info.pending_update_count || 0}${errText}`,
+            raw: info
+          });
+        } else {
+          setWebhookInfo({
+            type: 'error',
+            text: `⚠️ টেলিগ্রামে এখনো কোনো Webhook সেট করা নেই (Polling মোডে আছে)। নিচে 'সেটিংস সেভ করুন' বাটনে চাপ দিন।`
+          });
+        }
+      } else {
+        setWebhookInfo({
+          type: 'error',
+          text: `❌ ব্যর্থ হয়েছে: ${data.error || data.description || 'টেলিগ্রাম এপিআই রেসপন্স করেনি'}`
+        });
+      }
+    } catch (err: any) {
+      setWebhookInfo({
+        type: 'error',
+        text: `❌ কানেকশন এরর: ${err.message || 'সার্ভার রেসপন্স করেনি'}`
+      });
+    } finally {
+      setTestingWebhook(false);
+    }
+  };
   return (
     <div className="max-w-xl mx-auto space-y-6">
       <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
@@ -123,7 +165,18 @@ export default function AdminBot({
 
           {/* Telegram Webhook / Vercel / Render URL */}
           <div>
-            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Server Webhook URL (Vercel / Render App URL)</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] uppercase font-bold text-slate-500 block">Server Webhook URL (Vercel / Render App URL)</label>
+              <button
+                type="button"
+                onClick={handleTestWebhook}
+                disabled={testingWebhook}
+                className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={testingWebhook ? "animate-spin" : ""} />
+                <span>{testingWebhook ? "যাচাই করা হচ্ছে..." : "ওয়েব হুক স্ট্যাটাস চেক"}</span>
+              </button>
+            </div>
             <input 
               type="text"
               placeholder="e.g. https://your-app.vercel.app or https://your-app.onrender.com"
@@ -134,6 +187,16 @@ export default function AdminBot({
             <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
               🚀 <b>ভার্সেল (Vercel) / রেন্ডার-এ ২৪/৭ ঘণ্টা বট সচল রাখার উপায়:</b> আপনার Vercel অ্যাপের মেইন ডোমেইন লিঙ্কটি এখানে দিন (যেমন: <code>https://your-app.vercel.app</code>)। সেটিংস সেভ করলেই টেলিগ্রাম বট <b>WebHook (ওয়েব হুক)</b> মোডে সেট হয়ে যাবে। এর ফলে আপনার ব্রাউজার বন্ধ থাকলেও বা আপনি এখানে না থাকলেও টেলিগ্রামে কোনো মেসেজ আসলেই ভার্সেল সার্ভার সাথে সাথে রেসপন্স করে ২৪/৭ অটো-রিপ্লাই দিবে!
             </p>
+
+            {webhookInfo && (
+              <div className={`mt-2 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap leading-relaxed ${
+                webhookInfo.type === 'success' ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300' :
+                webhookInfo.type === 'error' ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300' :
+                'bg-slate-800 text-slate-300'
+              }`}>
+                {webhookInfo.text}
+              </div>
+            )}
           </div>
 
           {/* Admin Password */}

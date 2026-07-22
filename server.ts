@@ -167,7 +167,7 @@ app.use((req, res, next) => {
   });
 
   // Verify Admin Password safely on the server side
-  app.post("/api/admin/verify-password", async (req, res) => {
+  app.post(["/api/admin/verify-password", "/admin/verify-password"], async (req, res) => {
     const { password } = req.body;
     try {
       const settings = await getGlobalSettings();
@@ -184,7 +184,7 @@ app.use((req, res, next) => {
   });
 
   // Direct notification to user about approval or rejection
-  app.post("/api/telegram-direct-notify", async (req, res) => {
+  app.post(["/api/telegram-direct-notify", "/telegram-direct-notify"], async (req, res) => {
     const { targetWalletNumber, telegramChatId, type, details, items } = req.body;
     try {
       const settings = await getGlobalSettings();
@@ -336,7 +336,7 @@ app.use((req, res, next) => {
   });
 
   // Proxy route for Telegram notifications
-  app.post("/api/telegram-notify", async (req, res) => {
+  app.post(["/api/telegram-notify", "/telegram-notify"], async (req, res) => {
     const { submission, botToken, chatId, rate } = req.body;
     
     if (!botToken || !chatId) {
@@ -391,7 +391,7 @@ app.use((req, res, next) => {
   });
 
   // Proxy route to fetch latest chat updates from Telegram Bot to auto-detect Chat ID
-  app.post("/api/telegram-updates", async (req, res) => {
+  app.post(["/api/telegram-updates", "/telegram-updates"], async (req, res) => {
     const { botToken } = req.body;
     if (!botToken) {
       return res.status(400).json({ error: "Telegram Bot Token is required" });
@@ -407,7 +407,7 @@ app.use((req, res, next) => {
   });
 
   // Broadcast route to send messages to all users in Telegram
-  app.post("/api/telegram-broadcast", async (req, res) => {
+  app.post(["/api/telegram-broadcast", "/telegram-broadcast"], async (req, res) => {
     const { chatIds, message } = req.body;
     
     if (!chatIds || !Array.isArray(chatIds) || chatIds.length === 0) {

@@ -954,15 +954,38 @@ export default function App() {
     setSettingsStatus({ type: 'saving', text: "সেটিংস ক্লাউড ডাটাবেজে সংরক্ষণ করা হচ্ছে..." });
     try {
       await saveSettings(settings);
+
+      // Call API to register/update Webhook with Telegram servers
+      let whInfo = "";
+      try {
+        const whRes = await fetch("/api/telegram-set-webhook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ webhookUrl: settings.webhookUrl })
+        });
+        const whData = await whRes.json();
+        if (whData.success) {
+          if (whData.mode === "webhook") {
+            whInfo = ` (টেলিগ্রাম WebHook সক্রিয়: ${whData.fullWebhookUrl})`;
+          } else {
+            whInfo = " (টেলিগ্রাম পোলিং মোড সক্রিয়)";
+          }
+        } else if (whData.error) {
+          whInfo = ` (টেলিগ্রাম Webhook বার্তা: ${whData.error})`;
+        }
+      } catch (whErr) {
+        console.error("Error calling /api/telegram-set-webhook:", whErr);
+      }
+
       setSettingsStatus({ 
         type: 'success', 
-        text: "অভিনন্দন! আপনার সিস্টেম সেটিংস এবং কনফিগারেশন সফলভাবে ক্লাউড ডাটাবেজে সংরক্ষিত ও আপডেট হয়েছে।" 
+        text: `অভিনন্দন! আপনার সিস্টেম সেটিংস সফলভাবে সংরক্ষিত ও আপডেট হয়েছে।${whInfo}` 
       });
       await loadAllData();
-      // Clear after 4.5 seconds
+      // Clear after 6 seconds
       setTimeout(() => {
         setSettingsStatus(null);
-      }, 4500);
+      }, 6000);
     } catch (err: any) {
       setSettingsStatus({ 
         type: 'error', 

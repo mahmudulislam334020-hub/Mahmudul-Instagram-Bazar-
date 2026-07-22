@@ -1673,10 +1673,36 @@ export async function handleWebhookUpdate(update: any) {
     console.log("Webhook received but bot is not initialized. Syncing bot first...");
     await syncTelegramBot();
   }
-  if (currentBot) {
-    currentBot.processUpdate(update);
-  } else {
+
+  if (!currentBot) {
     console.error("currentBot is null when receiving webhook update");
+    return;
+  }
+
+  // Handle message updates directly and await completion so serverless environments like Vercel don't freeze before sending replies
+  if (update.message) {
+    const msg = update.message;
+    const chatId = msg.chat.id;
+    const text = msg.text ? msg.text.trim() : "";
+    try {
+      await handleBotMessage(currentBot, chatId, text, msg);
+    } catch (err: any) {
+      console.error("Error handling telegram bot message in webhook:", err);
+      try {
+        await currentBot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
+      } catch (sendErr) {
+        console.error("Error sending error message:", sendErr);
+      }
+    }
+  } else if (update.callback_query) {
+    try {
+      await handleCallbackQuery(currentBot, update.callback_query);
+    } catch (err) {
+      console.error("Error processing callback query in webhook:", err);
+    }
+  } else {
+    // Fallback for other update types (e.g., edited_message, etc.)
+    currentBot.processUpdate(update);
   }
 }
 

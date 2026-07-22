@@ -87,6 +87,41 @@ app.use(express.json());
     }
   });
 
+  // Explicitly set or reset Webhook with Telegram
+  app.post("/api/telegram-set-webhook", async (req, res) => {
+    try {
+      const settings = await getGlobalSettings();
+      if (!settings || !settings.telegramBotToken) {
+        return res.status(400).json({ error: "Telegram Bot Token is not configured." });
+      }
+
+      const { webhookUrl } = req.body;
+      const targetUrl = (webhookUrl !== undefined ? webhookUrl : (settings.webhookUrl || "")).trim().replace(/\/$/, "");
+
+      if (!targetUrl) {
+        // Delete webhook to return to polling
+        const deleteUrl = `https://api.telegram.org/bot${settings.telegramBotToken}/deleteWebhook`;
+        const deleteRes = await fetch(deleteUrl);
+        const deleteData = await deleteRes.json();
+        return res.status(200).json({ success: true, mode: "polling", telegramResponse: deleteData });
+      }
+
+      const fullWebhookUrl = `${targetUrl}/api/telegram-webhook`;
+      const setUrl = `https://api.telegram.org/bot${settings.telegramBotToken}/setWebhook?url=${encodeURIComponent(fullWebhookUrl)}`;
+      const response = await fetch(setUrl);
+      const data = await response.json();
+
+      if (!data.ok) {
+        return res.status(400).json({ success: false, error: data.description || "Telegram returned error" });
+      }
+
+      res.status(200).json({ success: true, mode: "webhook", fullWebhookUrl, telegramResponse: data });
+    } catch (err: any) {
+      console.error("Error setting telegram webhook:", err);
+      res.status(500).json({ error: err?.message || "Failed to set webhook" });
+    }
+  });
+
   // Verify Admin Password safely on the server side
   app.post("/api/admin/verify-password", async (req, res) => {
     const { password } = req.body;

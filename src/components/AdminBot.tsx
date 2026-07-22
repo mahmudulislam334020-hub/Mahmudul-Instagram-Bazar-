@@ -121,18 +121,18 @@ export default function AdminBot({
             </p>
           </div>
 
-          {/* Telegram Webhook / Render URL */}
+          {/* Telegram Webhook / Vercel / Render URL */}
           <div>
-            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Server Webhook URL (Render URL)</label>
+            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Server Webhook URL (Vercel / Render App URL)</label>
             <input 
               type="text"
-              placeholder="e.g. https://your-app.onrender.com"
+              placeholder="e.g. https://your-app.vercel.app or https://your-app.onrender.com"
               value={settings.webhookUrl || ''}
               onChange={(e) => setAppSettings(prev => ({ ...prev, webhookUrl: e.target.value }))}
-              className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
+              className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all font-mono text-xs"
             />
-            <p className="text-[10px] text-slate-500 mt-1">
-              🚀 <b>রেন্ডার সার্ভারের জন্য অত্যন্ত গুরুত্বপূর্ণ:</b> আপনার রেন্ডার অ্যাপের URL-টি এখানে দিন (যেমন: <code>https://your-app.onrender.com</code>)। এটি সেট করলে টেলিগ্রাম বট "ওয়েব হুক" মোডে চলবে, ফলে রেন্ডার ইনঅ্যাক্টিভ বা স্লিপ মোডে গেলেও বটের কাছে কোনো মেসেজ আসলেই সার্ভার স্বয়ংক্রিয়ভাবে জেগে উঠবে এবং দ্রুত রিপ্লাই দিবে।
+            <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+              🚀 <b>ভার্সেল (Vercel) / রেন্ডার-এ ২৪/৭ ঘণ্টা বট সচল রাখার উপায়:</b> আপনার Vercel অ্যাপের মেইন ডোমেইন লিঙ্কটি এখানে দিন (যেমন: <code>https://your-app.vercel.app</code>)। সেটিংস সেভ করলেই টেলিগ্রাম বট <b>WebHook (ওয়েব হুক)</b> মোডে সেট হয়ে যাবে। এর ফলে আপনার ব্রাউজার বন্ধ থাকলেও বা আপনি এখানে না থাকলেও টেলিগ্রামে কোনো মেসেজ আসলেই ভার্সেল সার্ভার সাথে সাথে রেসপন্স করে ২৪/৭ অটো-রিপ্লাই দিবে!
             </p>
           </div>
 

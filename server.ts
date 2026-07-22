@@ -2,11 +2,11 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { initTelegramBot, handleWebhookUpdate } from "./src/telegramBot.js";
+import { initTelegramBot, handleWebhookUpdate } from "./src/telegramBot";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
-let databaseId = "(default)";
+let databaseId = "ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c";
 
 try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
@@ -55,20 +55,18 @@ async function getGlobalSettings() {
   }
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+export const app = express();
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-  // Initialize the Telegram Bot
-  try {
-    await initTelegramBot();
-    console.log("Telegram Bot initialization triggered successfully.");
-  } catch (err) {
-    console.error("Failed to trigger Telegram Bot initialization:", err);
-  }
+// Initialize the Telegram Bot
+initTelegramBot().then(() => {
+  console.log("Telegram Bot initialization triggered successfully.");
+}).catch((err) => {
+  console.error("Failed to trigger Telegram Bot initialization:", err);
+});
 
-  // Middleware to parse JSON
-  app.use(express.json());
+// Middleware to parse JSON
+app.use(express.json());
 
   // API routes
   app.get("/api/health", (req, res) => {
@@ -378,8 +376,8 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+async function setupStaticAndListen() {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -393,9 +391,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
-startServer();
+setupStaticAndListen();
+
+export default app;

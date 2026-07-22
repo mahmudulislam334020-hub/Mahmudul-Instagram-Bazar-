@@ -9,7 +9,7 @@ import crypto from "crypto";
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import * as path from 'path';
-import { db } from "./firebase.js";
+import { db } from "./firebase";
 import { 
   doc, 
   getDoc, 

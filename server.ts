@@ -15,8 +15,9 @@ try {
     if (firebaseConfig.projectId) {
       projectId = firebaseConfig.projectId;
     }
-    // Always use '(default)' database for the user's custom Firebase setup
-    databaseId = "(default)";
+    if (firebaseConfig.firestoreDatabaseId) {
+      databaseId = firebaseConfig.firestoreDatabaseId;
+    }
   }
 } catch (err) {
   console.error("Error reading firebase-applet-config.json inside server.ts:", err);

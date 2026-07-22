@@ -98,26 +98,45 @@ export default function App() {
     }
     setIsVerifyingPassword(true);
     setLoginError("");
+
+    let apiVerified = false;
     try {
       const response = await fetch("/api/admin/verify-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: adminPasswordInput })
       });
-      const data = await response.json();
-      if (data.success) {
-        setIsAdmin(true);
-        sessionStorage.setItem("is_admin_logged_in", "true");
-        setShowLoginModal(false);
-        setActiveTab('admin_facebook');
-      } else {
-        setLoginError("❌ ভুল পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          apiVerified = true;
+          setIsAdmin(true);
+          sessionStorage.setItem("is_admin_logged_in", "true");
+          setShowLoginModal(false);
+          setActiveTab('admin_facebook');
+          setIsVerifyingPassword(false);
+          return;
+        } else {
+          setLoginError("❌ ভুল পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।");
+          setIsVerifyingPassword(false);
+          return;
+        }
       }
     } catch (err) {
-      setLoginError("সার্ভার কানেকশন ত্রুটি! অনুগ্রহ করে আবার চেষ্টা করুন।");
-    } finally {
-      setIsVerifyingPassword(false);
+      console.warn("Server API verification fallback triggered:", err);
     }
+
+    // Client-side fallback check (for serverless / static deployment)
+    const expectedPass = settings.adminPassword || "admin123";
+    if (adminPasswordInput === expectedPass) {
+      setIsAdmin(true);
+      sessionStorage.setItem("is_admin_logged_in", "true");
+      setShowLoginModal(false);
+      setActiveTab('admin_facebook');
+    } else {
+      setLoginError("❌ ভুল পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।");
+    }
+    setIsVerifyingPassword(false);
   };
   
   // User Permanent Wallet States

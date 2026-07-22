@@ -1,12 +1,12 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { initTelegramBot, handleWebhookUpdate } from "./src/telegramBot";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
 let databaseId = "ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c";
+let apiKey = "AIzaSyBEO8S2XRSMTxwcMU2JyiIr-O7ddrHNb9Y";
 
 try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
@@ -18,6 +18,9 @@ try {
     if (firebaseConfig.firestoreDatabaseId) {
       databaseId = firebaseConfig.firestoreDatabaseId;
     }
+    if (firebaseConfig.apiKey) {
+      apiKey = firebaseConfig.apiKey;
+    }
   }
 } catch (err) {
   console.error("Error reading firebase-applet-config.json inside server.ts:", err);
@@ -25,7 +28,7 @@ try {
 
 async function getGlobalSettings() {
   try {
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global`;
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global?key=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       return null;
@@ -378,6 +381,7 @@ app.use(express.json());
 
 async function setupStaticAndListen() {
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

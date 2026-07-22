@@ -1765,6 +1765,8 @@ export async function syncTelegramBot() {
       } catch (whErr) {
         console.error("[Telegram Bot] Error setting Webhook:", whErr);
       }
+    } else if (process.env.VERCEL) {
+      console.log("[Telegram Bot] Vercel Serverless environment detected. Telegram Bot initialized for Webhook mode.");
     } else {
       console.log("[Telegram Bot] Setting up Polling mode...");
       
@@ -1805,6 +1807,10 @@ export async function syncTelegramBot() {
 
 // Automatically sync periodically
 export async function initTelegramBot() {
+  if (process.env.VERCEL) {
+    console.log("[Telegram Bot] Vercel Serverless environment: Skipping polling and background timers.");
+    return;
+  }
   // Sync immediately
   await syncTelegramBot();
   // Sync every 30 seconds

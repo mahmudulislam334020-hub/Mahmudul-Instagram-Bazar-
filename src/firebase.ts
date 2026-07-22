@@ -18,11 +18,13 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 // Initialize Firestore safely
 let db: any;
 try {
-  db = initializeFirestore(app, {
-    experimentalForceLongPolling: true
-  }, firebaseConfig.firestoreDatabaseId);
-} catch (e) {
   db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  try {
+    db = initializeFirestore(app, {}, firebaseConfig.firestoreDatabaseId);
+  } catch (err) {
+    db = getFirestore(app);
+  }
 }
 
 export { db };

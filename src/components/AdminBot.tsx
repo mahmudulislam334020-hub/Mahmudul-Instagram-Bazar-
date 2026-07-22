@@ -45,6 +45,11 @@ export default function AdminBot({
     setWebhookInfo(null);
     try {
       const res = await fetch("/api/telegram-webhook-status");
+      const contentType = res.headers.get("content-type") || "";
+      if (!res.ok || !contentType.includes("application/json")) {
+        const text = await res.text();
+        throw new Error(text ? text.substring(0, 120) : `HTTP ${res.status}`);
+      }
       const data = await res.json();
       if (data.ok && data.result) {
         const info = data.result;

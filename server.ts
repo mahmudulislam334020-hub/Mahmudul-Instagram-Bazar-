@@ -71,8 +71,18 @@ initTelegramBot().then(() => {
 // Middleware to parse JSON
 app.use(express.json());
 
+// Express route path normalizer for Vercel Serverless Function rewrites
+app.use((req, res, next) => {
+  if (req.url.startsWith("/api/index.ts")) {
+    req.url = req.url.replace("/api/index.ts", "") || "/";
+  } else if (req.url.startsWith("/api/index")) {
+    req.url = req.url.replace("/api/index", "") || "/";
+  }
+  next();
+});
+
   // API routes
-  app.get("/api/health", (req, res) => {
+  app.get(["/api/health", "/health"], (req, res) => {
     res.json({ status: "ok" });
   });
 
@@ -100,7 +110,7 @@ app.use(express.json());
   });
 
   // Check active Webhook Status directly from Telegram API
-  app.get("/api/telegram-webhook-status", async (req, res) => {
+  app.get(["/api/telegram-webhook-status", "/telegram-webhook-status"], async (req, res) => {
     try {
       const settings = await getGlobalSettings();
       if (!settings || !settings.telegramBotToken) {
@@ -118,7 +128,7 @@ app.use(express.json());
   });
 
   // Explicitly set or reset Webhook with Telegram
-  app.post("/api/telegram-set-webhook", async (req, res) => {
+  app.post(["/api/telegram-set-webhook", "/telegram-set-webhook"], async (req, res) => {
     try {
       const settings = await getGlobalSettings();
       if (!settings || !settings.telegramBotToken) {
@@ -456,7 +466,7 @@ async function setupStaticAndListen() {
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -467,6 +477,11 @@ async function setupStaticAndListen() {
   if (!process.env.VERCEL) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } else {
+    // Vercel serverless fallback for unmatched API routes
+    app.use((req, res) => {
+      res.status(404).json({ error: `API route not found: ${req.url}` });
     });
   }
 }

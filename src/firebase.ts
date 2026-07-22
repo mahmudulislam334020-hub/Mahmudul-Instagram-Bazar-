@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 import defaultConfig from "../firebase-applet-config.json";
 
 const firebaseConfig = {
@@ -13,10 +13,18 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore safely
+let db: any;
+try {
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
 
 export { db };
+
 

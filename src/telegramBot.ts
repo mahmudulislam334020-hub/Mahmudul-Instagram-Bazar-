@@ -1671,7 +1671,7 @@ export async function handleWebhookUpdate(update: any) {
   console.log("Received Webhook Update:", JSON.stringify(update));
   if (!currentBot) {
     console.log("Webhook received but bot is not initialized. Syncing bot first...");
-    await syncTelegramBot();
+    await syncTelegramBot(true);
   }
 
   if (!currentBot) {
@@ -1706,19 +1706,49 @@ export async function handleWebhookUpdate(update: any) {
   }
 }
 
-export async function syncTelegramBot() {
+export async function syncTelegramBot(isFromWebhook = false) {
   try {
-    const settingsRef = doc(db, "settings", "global");
-    const settingsSnap = await getDoc(settingsRef);
-    if (!settingsSnap.exists()) return;
+    let settings: any = null;
 
-    const settings = settingsSnap.data();
+    // Fast fetch settings via REST API first to prevent cold-start delay on Vercel
+    try {
+      const projectId = "mahmudul-instagram-bazar";
+      const databaseId = "ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c";
+      const apiKey = "AIzaSyBEO8S2XRSMTxwcMU2JyiIr-O7ddrHNb9Y";
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global?key=${apiKey}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.fields) {
+          settings = {
+            telegramBotToken: data.fields.telegramBotToken?.stringValue || "",
+            webhookUrl: data.fields.webhookUrl?.stringValue || "",
+            telegramChatId: data.fields.telegramChatId?.stringValue || "",
+            ratePerId: data.fields.ratePerId?.integerValue ? parseInt(data.fields.ratePerId.integerValue) : 45,
+            facebookRatePerId: data.fields.facebookRatePerId?.integerValue ? parseInt(data.fields.facebookRatePerId.integerValue) : 45,
+          };
+        }
+      }
+    } catch (e) {
+      console.error("Fast REST fetch settings error:", e);
+    }
+
+    if (!settings) {
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      if (settingsSnap.exists()) {
+        settings = settingsSnap.data();
+      }
+    }
+
+    if (!settings) return;
+
     const token = settings.telegramBotToken ? String(settings.telegramBotToken).trim() : null;
     const webhookUrl = settings.webhookUrl ? String(settings.webhookUrl).trim().replace(/\/$/, "") : null;
 
     if (currentBot && token === currentBotToken && webhookUrl === currentWebhookUrl) {
       // If we are in polling mode and not currently polling (due to temporary conflict), let's attempt to restart polling!
-      if (!webhookUrl && currentBot && !currentBot.isPolling()) {
+      if (!webhookUrl && currentBot && !currentBot.isPolling() && !process.env.VERCEL) {
         console.log("[Telegram Bot] Polling was inactive. Retrying startPolling...");
         try {
           await currentBot.startPolling();
@@ -1782,7 +1812,9 @@ export async function syncTelegramBot() {
       }
     });
 
-    if (webhookUrl) {
+    // CRITICAL: On Vercel / serverless or when receiving a webhook request, DO NOT call setWebHook on every cold start!
+    // /api/telegram-set-webhook handles registering the webhook explicitly.
+    if (webhookUrl && !isFromWebhook && !process.env.VERCEL) {
       const fullWebhookUrl = `${webhookUrl}/api/telegram-webhook`;
       console.log(`[Telegram Bot] Setting up Webhook mode pointing to: ${fullWebhookUrl}`);
       try {
@@ -1791,8 +1823,8 @@ export async function syncTelegramBot() {
       } catch (whErr) {
         console.error("[Telegram Bot] Error setting Webhook:", whErr);
       }
-    } else if (process.env.VERCEL) {
-      console.log("[Telegram Bot] Vercel Serverless environment detected. Telegram Bot initialized for Webhook mode.");
+    } else if (webhookUrl || process.env.VERCEL) {
+      console.log("[Telegram Bot] Webhook mode initialized for incoming updates.");
     } else {
       console.log("[Telegram Bot] Setting up Polling mode...");
       

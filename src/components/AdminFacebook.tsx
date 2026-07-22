@@ -8,7 +8,9 @@ import {
   Database, 
   Trash2, 
   AlertCircle, 
-  User 
+  User,
+  Key,
+  Search
 } from 'lucide-react';
 import { Submission, AppSettings, Withdrawal } from '../firebaseService';
 
@@ -81,6 +83,64 @@ export default function AdminFacebook({
   fbSubTab,
   setFbSubTab
 }: AdminFacebookProps) {
+  const [passwordFilter, setPasswordFilter] = React.useState('');
+  const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
+  const [passwordActionResult, setPasswordActionResult] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  // Extract unique passwords and count how many submissions have each password
+  const passwordCounts = React.useMemo(() => {
+    const map: { [pwd: string]: number } = {};
+    categoryFilteredSubmissions.forEach(sub => {
+      const pwd = (sub.password || '').trim();
+      if (pwd) {
+        map[pwd] = (map[pwd] || 0) + 1;
+      }
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [categoryFilteredSubmissions]);
+
+  // Filter submissions based on password search query
+  const displayedSubmissions = React.useMemo(() => {
+    if (!passwordFilter.trim()) return categoryFilteredSubmissions;
+    const query = passwordFilter.trim().toLowerCase();
+    return categoryFilteredSubmissions.filter(sub => 
+      (sub.password || '').toLowerCase().includes(query)
+    );
+  }, [categoryFilteredSubmissions, passwordFilter]);
+
+  // Handle deleting all submissions matching current password filter
+  const handleDeleteFilteredByPassword = async () => {
+    if (!passwordFilter.trim()) return;
+    const count = displayedSubmissions.length;
+    if (count === 0) return;
+
+    const confirmMsg = `আপনি কি নিশ্চিত যে '${passwordFilter}' পাসওয়ার্ডযুক্ত সকল ${count}টি আইডি স্থায়ীভাবে ডাটাবেজ থেকে মুছে ফেলতে চান?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBulkDeletingByPassword(true);
+    setPasswordActionResult(null);
+
+    try {
+      const idsToDelete = displayedSubmissions.map(s => s.id).filter(Boolean) as string[];
+      for (const id of idsToDelete) {
+        await handleDeleteSub(id);
+      }
+      setPasswordActionResult({
+        type: 'success',
+        text: `✅ '${passwordFilter}' পাসওয়ার্ডের মোট ${count}টি আইডি সফলভাবে মুছে ফেলা হয়েছে!`
+      });
+      setPasswordFilter('');
+    } catch (err) {
+      console.error("Bulk password delete error:", err);
+      setPasswordActionResult({
+        type: 'error',
+        text: '❌ আইডি মোছার সময় সমস্যা হয়েছে!'
+      });
+    } finally {
+      setIsBulkDeletingByPassword(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
@@ -224,6 +284,117 @@ export default function AdminFacebook({
             </div>
           </div>
 
+          {/* PASSWORD / DATE FILTER BOX */}
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Key size={16} className="text-amber-400" />
+                  <span>পাসওয়ার্ড / ডেট ভিত্তিক ফিল্টার অপশন (Password & Date Filter)</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  পাসওয়ার্ডের শেষের তারিখ বা কোড টাইপ করে সার্চ করুন অথবা নিচের ব্যাজে ক্লিক করে আইডি ফিল্টার করুন এবং এক ক্লিকে ডিলিট করুন।
+                </p>
+              </div>
+              {passwordFilter && (
+                <button
+                  type="button"
+                  onClick={() => setPasswordFilter('')}
+                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors shrink-0"
+                >
+                  ✕ ফিল্টার রিসেট
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              {/* Search input field */}
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                  <Search size={15} />
+                </span>
+                <input
+                  type="text"
+                  placeholder="পাসওয়ার্ড বা ডেট টাইপ করুন (যেমন: nihad@16, @16, pass2026)..."
+                  value={passwordFilter}
+                  onChange={(e) => setPasswordFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-xl text-slate-200 text-xs font-mono outline-none focus:border-amber-500 transition-all placeholder:text-slate-600"
+                />
+              </div>
+
+              {/* Quick Password Badges */}
+              {passwordCounts.length > 0 && (
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
+                    বিদ্যমান পাসওয়ার্ড ব্যাজ (Quick Filters):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                    {passwordCounts.map(([pwd, count]) => {
+                      const isActive = passwordFilter.toLowerCase() === pwd.toLowerCase();
+                      return (
+                        <button
+                          key={pwd}
+                          type="button"
+                          onClick={() => setPasswordFilter(isActive ? '' : pwd)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all flex items-center gap-1.5 border ${
+                            isActive
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          <span>🔑 {pwd}</span>
+                          <span className="bg-slate-900 text-slate-400 px-1.5 py-0.2 rounded text-[9px] border border-slate-800">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Action bar when filter is active */}
+              {passwordFilter.trim() && (
+                <div className="bg-slate-950 border border-amber-500/30 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="text-xs text-slate-300 space-y-0.5">
+                    <span className="text-amber-400 font-bold block">
+                      🔍 ফিল্টারিকৃত পাসওয়ার্ড: <code className="bg-slate-900 px-2 py-0.5 rounded text-amber-300 font-mono">{passwordFilter}</code>
+                    </span>
+                    <p className="text-slate-400 text-[11px]">
+                      মোট {displayedSubmissions.length}টি আইডি ম্যাচ করেছে।
+                    </p>
+                  </div>
+
+                  {displayedSubmissions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteFilteredByPassword}
+                      disabled={isBulkDeletingByPassword}
+                      className="w-full sm:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0"
+                    >
+                      <Trash2 size={14} />
+                      <span>
+                        {isBulkDeletingByPassword
+                          ? 'ডিলিট হচ্ছে...'
+                          : `এই ডেটের/পাসওয়ার্ডের সব (${displayedSubmissions.length}টি) আইডি মুছে ফেলুন`}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {passwordActionResult && (
+                <div className={`p-3 rounded-xl text-xs font-medium leading-relaxed border ${
+                  passwordActionResult.type === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}>
+                  {passwordActionResult.text}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Submissions list */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
@@ -233,10 +404,10 @@ export default function AdminFacebook({
                     <th className="py-4 px-6 w-12 text-center">
                       <input 
                         type="checkbox"
-                        checked={selectedSubIds.length === categoryFilteredSubmissions.length && categoryFilteredSubmissions.length > 0}
+                        checked={selectedSubIds.length === displayedSubmissions.length && displayedSubmissions.length > 0}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedSubIds(categoryFilteredSubmissions.map(s => s.id || '').filter(Boolean));
+                            setSelectedSubIds(displayedSubmissions.map(s => s.id || '').filter(Boolean));
                           } else {
                             setSelectedSubIds([]);
                           }
@@ -255,12 +426,14 @@ export default function AdminFacebook({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {categoryFilteredSubmissions.length === 0 ? (
+                  {displayedSubmissions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-10 text-center text-slate-500 text-sm">কোনো ফেসবুক আইডি রেকর্ড পাওয়া যায়নি।</td>
+                      <td colSpan={9} className="py-10 text-center text-slate-500 text-sm">
+                        {passwordFilter ? `'${passwordFilter}' পাসওয়ার্ডযুক্ত কোনো ফেসবুক আইডি রেকর্ড পাওয়া যায়নি।` : 'কোনো ফেসবুক আইডি রেকর্ড পাওয়া যায়নি।'}
+                      </td>
                     </tr>
                   ) : (
-                    categoryFilteredSubmissions.map((sub, index) => (
+                    displayedSubmissions.map((sub, index) => (
                       <tr key={sub.id || index} className="hover:bg-slate-950/40 transition-colors">
                         <td className="py-4 px-6 text-center">
                           <input 

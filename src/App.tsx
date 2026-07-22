@@ -21,7 +21,8 @@ import {
   Users,
   Database,
   List,
-  Facebook
+  Facebook,
+  ShieldCheck
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -54,7 +55,7 @@ import AdminBot from './components/AdminBot';
 
 export default function App() {
   // Navigation & Role State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'instagram' | 'withdraw' | 'admin_facebook' | 'admin_instagram' | 'admin_withdrawals' | 'admin_bot'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_instagram' | 'admin_withdrawals' | 'admin_bot'>('admin_facebook');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -1173,128 +1174,46 @@ export default function App() {
         <div className="p-6 flex-grow overflow-y-auto">
           <div className="hidden md:flex items-center gap-3 mb-8">
             <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-white text-lg shadow-lg shadow-indigo-600/30">I</div>
-            <h1 className="text-xl font-bold tracking-tight text-white uppercase">InstaSafe</h1>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-white uppercase">InstaSafe</h1>
+              <span className="text-[10px] text-indigo-400 font-mono block">Admin Panel</span>
+            </div>
           </div>
 
-          {/* Permanent Wallet Profile & Switch View */}
-          {userWalletNumber ? (
-            <div className="mb-6 space-y-3">
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl relative overflow-hidden">
-                <div className="absolute right-0 top-0 w-16 h-16 bg-indigo-500/5 rounded-full blur-xl"></div>
-                
-                <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1.5">আপনার স্থায়ী ওয়ালেট (My Wallet)</span>
-                
-                <div className="flex items-center gap-2">
-                  <div className={`px-2 py-0.5 text-[9px] font-extrabold rounded-md uppercase ${
-                    userWalletType === 'bKash' ? 'bg-pink-600/10 text-pink-500 border border-pink-500/20' :
-                    userWalletType === 'Nagad' ? 'bg-orange-600/10 text-orange-500 border border-orange-500/20' :
-                    'bg-sky-600/10 text-sky-500 border border-sky-500/20'
-                  }`}>
-                    {userWalletType}
-                  </div>
-                  <span className="text-sm font-bold text-white font-mono tracking-wide">{userWalletNumber}</span>
-                </div>
-                
-                <p className="text-[9px] text-slate-500 mt-2 leading-relaxed font-medium">
-                  ⚠️ এই ওয়ালেট ছাড়া অন্য কোনো নাম্বারে টাকা উত্তোলন করতে পারবেন না।
-                </p>
-
-                {activeProfile && (activeProfile as any).telegramChatId ? (
-                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    টেলিগ্রাম নোটিফিকেশন সচল ✅
-                  </div>
-                ) : (
-                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                    নোটিফিকেশন লিংক নেই ⚠️
-                  </div>
-                )}
-              </div>
-
-              {/* View/Search Another Wallet */}
-              <div className="bg-slate-950/40 border border-slate-850 p-3.5 rounded-xl space-y-2">
-                <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">অন্য প্রোফাইল দেখুন (Check Wallet)</span>
-                
-                <input 
-                  type="text" 
-                  placeholder="ওয়ালেট নাম্বার লিখুন"
-                  value={activeWalletNumber} 
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\s+/g, '');
-                    setActiveWalletNumber(val);
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-medium font-mono focus:border-indigo-500 outline-none transition-all"
-                />
-
-                {activeWalletNumber !== userWalletNumber && (
-                  <button 
-                    onClick={() => setActiveWalletNumber(userWalletNumber)}
-                    className="w-full py-1 text-[10px] text-indigo-400 font-bold hover:text-indigo-300 transition-colors flex items-center justify-center gap-1"
-                  >
-                    ← নিজের ওয়ালেটে ফিরুন
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="mb-6 bg-slate-950 border border-amber-500/20 p-4 rounded-xl">
-              <span className="text-[10px] text-amber-500 uppercase font-bold tracking-wider block mb-1">প্রোফাইল অসম্পূর্ণ</span>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                অনুগ্রহ করে আপনার স্থায়ী ওয়ালেট সেট করুন।
-              </p>
-            </div>
-          )}
-
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block px-3 mb-2">Work & Wallet</span>
-          <nav className="space-y-1 mb-6">
-            <button onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Grid size={18} />
-              <span>ড্যাশবোর্ড (Dashboard)</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block px-3 mb-3">Admin Control Tabs</span>
+          
+          <nav className="space-y-1.5">
+            <button onClick={() => { setActiveTab('admin_facebook'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_facebook' ? 'bg-blue-950/80 border border-blue-800/40 text-blue-400 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Facebook size={16} className="text-blue-500" />
+              <span>Facebook Control (ফেসবুক)</span>
             </button>
-            <button onClick={() => { setActiveTab('instagram'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all ${activeTab === 'instagram' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Instagram size={18} />
-              <span>আইডি কাজ (2FA Tool)</span>
+            <button onClick={() => { setActiveTab('admin_instagram'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_instagram' ? 'bg-pink-950/80 border border-pink-800/40 text-pink-400 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Instagram size={16} className="text-pink-500" />
+              <span>Instagram Control (ইনস্টা)</span>
             </button>
-            <button onClick={() => { setActiveTab('withdraw'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all ${activeTab === 'withdraw' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Wallet size={18} />
-              <span>টাকা উত্তোলন (Withdraw)</span>
+            <button onClick={() => { setActiveTab('admin_withdrawals'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_withdrawals' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <DollarSign size={16} />
+              <span>পেমেন্ট রিকোয়েস্ট (Payouts)</span>
+            </button>
+            <button onClick={() => { setActiveTab('admin_bot'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_bot' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Settings size={16} />
+              <span>টেলিগ্রাম বট সেটিংস (Bot)</span>
             </button>
           </nav>
 
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block px-3 mb-2">Admin Control</span>
-          <nav className="space-y-1">
-            <div className="flex items-center justify-between px-3 mb-2">
-              <span className="text-xs text-slate-400">Admin Mode</span>
-              <button 
-                onClick={handleAdminToggle} 
-                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-all ${isAdmin ? 'bg-indigo-600' : 'bg-slate-800'}`}
+          {isAdmin && (
+            <div className="mt-8 pt-6 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  setIsAdmin(false);
+                  sessionStorage.removeItem("is_admin_logged_in");
+                }}
+                className="w-full py-2.5 px-4 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-rose-400 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-all ${isAdmin ? 'translate-x-5.5' : 'translate-x-1'}`} />
+                <span>🔒 লগআউট (Admin Logout)</span>
               </button>
             </div>
-
-            {isAdmin && (
-              <div className="space-y-1 pl-1">
-                <button onClick={() => { setActiveTab('admin_facebook'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_facebook' ? 'bg-blue-950/80 border border-blue-800/40 text-blue-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <Facebook size={15} className="text-blue-500" />
-                  <span>Facebook Control (ফেসবুক)</span>
-                </button>
-                <button onClick={() => { setActiveTab('admin_instagram'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_instagram' ? 'bg-pink-950/80 border border-pink-800/40 text-pink-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <Instagram size={15} className="text-pink-500" />
-                  <span>Instagram Control (ইনস্টা)</span>
-                </button>
-                <button onClick={() => { setActiveTab('admin_withdrawals'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_withdrawals' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <DollarSign size={15} />
-                  <span>পেমেন্ট রিকোয়েস্ট (Payouts)</span>
-                </button>
-                <button onClick={() => { setActiveTab('admin_bot'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'admin_bot' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <Settings size={15} />
-                  <span>টেলিগ্রাম বট সেটিংস (Bot)</span>
-                </button>
-              </div>
-            )}
-          </nav>
+          )}
         </div>
 
         {/* Telegram Status Info Footer */}
@@ -1315,21 +1234,31 @@ export default function App() {
         {/* Dynamic header */}
         <header className="hidden md:flex h-20 border-b border-slate-800 items-center justify-between px-8 bg-slate-900/40">
           <div>
-            <span className="text-xs text-slate-500 uppercase tracking-widest font-mono">Current Workspace</span>
+            <span className="text-xs text-slate-500 uppercase tracking-widest font-mono">Admin Portal Workspace</span>
             <h2 className="text-lg font-bold text-white tracking-tight capitalize">
-              {activeTab.replace('_', ' ')}
+              {activeTab === 'admin_facebook' ? 'Facebook Submissions & Control' :
+               activeTab === 'admin_instagram' ? 'Instagram Submissions & Control' :
+               activeTab === 'admin_withdrawals' ? 'Payouts & Withdrawals Manager' :
+               'Telegram Bot Settings & Broadcast'}
             </h2>
           </div>
           
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col items-end">
-              <span className="text-xs text-slate-500 uppercase tracking-widest font-mono">My Earnings Balance</span>
-              <span className="text-xl font-extrabold text-indigo-400">৳{calculateUserBalance(workerName)}</span>
-            </div>
-            <div className="w-px h-8 bg-slate-800"></div>
+          <div className="flex items-center gap-4">
+            {isAdmin ? (
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Admin Logged In
+              </span>
+            ) : (
+              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-full border border-amber-500/20 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                Admin Authentication Required
+              </span>
+            )}
+            
             <button 
               onClick={loadAllData} 
-              className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-white hover:border-slate-700 transition-all flex items-center justify-center"
+              className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-white hover:border-slate-700 transition-all flex items-center justify-center cursor-pointer"
               title="Refresh Data"
             >
               <RefreshCw size={16} className={`${loading ? 'animate-spin' : ''}`} />
@@ -1339,7 +1268,6 @@ export default function App() {
 
         {/* Main Content Area */}
         <div className="p-4 md:p-8 flex-grow">
-          {/* Main Content Area */}
           {loading && (
             <div className="mb-4 flex items-center gap-2 text-indigo-400 text-xs bg-indigo-500/10 border border-indigo-500/20 p-2.5 rounded-lg animate-pulse">
               <RefreshCw size={14} className="animate-spin" />
@@ -1347,581 +1275,75 @@ export default function App() {
             </div>
           )}
 
-          {!userWalletNumber ? (
-            <motion.div 
+          {!isAdmin ? (
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="max-w-xl mx-auto my-6 bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6 relative overflow-hidden"
+              className="max-w-xl mx-auto my-8 bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6 relative overflow-hidden"
             >
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 via-indigo-500 to-emerald-500"></div>
-              
-              <div className="space-y-2 text-center md:text-left">
-                <div className="w-12 h-12 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-xl flex items-center justify-center mx-auto md:mx-0">
-                  <Wallet size={24} />
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-pink-500"></div>
+
+              <div className="space-y-2 text-center">
+                <div className="w-14 h-14 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto">
+                  <ShieldCheck size={28} />
                 </div>
-                <h3 className="text-xl font-extrabold text-white">স্থায়ী ওয়ালেট অ্যাকাউন্ট সেটআপ (Profile Wallet Setup)</h3>
+                <h3 className="text-xl font-extrabold text-white">অ্যাডমিন প্যানেল প্রবেশাধিকার (Admin Portal Login)</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  আপনার কাজের হিসাব এবং টাকা উত্তোলনের জন্য একটি স্থায়ী ওয়ালেট নাম্বার যোগ করা আবশ্যক। এটি আপনার প্রোফাইল আইডি হিসেবে কাজ করবে।
+                  প্যানেলের কনফিগুরেশন পরিবর্তন ও কাজ দেখার জন্য পাসওয়ার্ড প্রদান করুন।
                 </p>
               </div>
 
-              <div className="bg-amber-500/10 border border-amber-500/25 p-4 rounded-xl space-y-2">
-                <span className="text-xs font-bold text-amber-500 uppercase tracking-widest block">⚠️ গুরুত্বপূর্ণ সতর্কতা (Important Notice)</span>
-                <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                  একবার আপনার ওয়ালেট নাম্বার সেট হয়ে গেলে তা <span className="text-amber-400 underline decoration-wavy">স্থায়ী ও অপরিবর্তনযোগ্য</span> থাকবে। আপনি ভবিষ্যতে শুধুমাত্র এই ওয়ালেট নাম্বারের মাধ্যমেই পেমেন্ট উত্তোলন করতে পারবেন। অন্য কোনো নাম্বারে পেমেন্ট পাঠানো সম্ভব হবে না।
+              {/* Bot Info Banner */}
+              <div className="bg-indigo-950/40 border border-indigo-500/20 p-4 rounded-xl space-y-2">
+                <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <span>🤖</span>
+                  <span>টেলিগ্রাম বট নোটিশ (Telegram Bot Only Work)</span>
+                </span>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  মূল ওয়েবসাইট থেকে কাজের অপশনটি রিমুভ করা হয়েছে। সকল ইউজার ও ওয়ার্কার সরাসরি <strong>টেলিগ্রাম বট</strong> থেকে কাজ জমা দেওয়া ও টাকা উইথড্র করতে পারবেন।
                 </p>
-              </div>
-
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                if (!setupNumber || setupNumber.length !== 11 || !/^\d+$/.test(setupNumber)) {
-                  return;
-                }
-
-                try {
-                  await saveUserProfile({
-                    walletNumber: setupNumber,
-                    walletType: setupType,
-                    createdAt: new Date().toISOString()
-                  });
-                  
-                  // Save permanently locally
-                  localStorage.setItem("user_wallet_number", setupNumber);
-                  localStorage.setItem("user_wallet_type", setupType);
-                  setUserWalletNumber(setupNumber);
-                  setUserWalletType(setupType);
-                  setActiveWalletNumber(setupNumber);
-                  setWorkerName(setupNumber);
-                  setActiveTab('dashboard');
-                } catch (err) {
-                  console.error("Error saving profile to Firestore:", err);
-                  // fallback save
-                  localStorage.setItem("user_wallet_number", setupNumber);
-                  localStorage.setItem("user_wallet_type", setupType);
-                  setUserWalletNumber(setupNumber);
-                  setUserWalletType(setupType);
-                  setActiveWalletNumber(setupNumber);
-                  setWorkerName(setupNumber);
-                  setActiveTab('dashboard');
-                }
-              }} className="space-y-4">
-                
-                {/* Method selector */}
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">ওয়ালেট মাধ্যম সিলেক্ট করুন (Payment Method)</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { id: 'bKash', name: 'bKash (বিকাশ)' },
-                      { id: 'Nagad', name: 'Nagad (নগদ)' },
-                      { id: 'Rocket', name: 'Rocket (রকেট)' }
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSetupType(item.id as any)}
-                        className={`py-3 px-2 text-center rounded-xl border text-xs font-bold transition-all ${
-                          setupType === item.id 
-                            ? 'border-indigo-500 bg-indigo-500/10 text-white shadow-lg shadow-indigo-500/10' 
-                            : 'bg-slate-950 border-slate-850 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                        }`}
-                      >
-                        {item.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Number Input */}
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">অ্যাকাউন্ট মোবাইল নাম্বার (Wallet Number)</label>
-                  <input 
-                    type="text" 
-                    maxLength={11}
-                    placeholder="যেমন: 017XXXXXXXX"
-                    value={setupNumber}
-                    onChange={(e) => setSetupNumber(e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all font-mono tracking-wide"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1">১১ সংখ্যার সচল পার্সোনাল মোবাইল ব্যাংকিং অ্যাকাউন্ট নাম্বার দিন।</p>
-                </div>
-
-                {/* Submit */}
-                <button 
-                  type="submit"
-                  disabled={!(setupNumber.length === 11 && setupNumber.startsWith('01'))}
-                  className={`w-full py-4 font-bold rounded-xl transition-all text-sm mt-2 ${
-                    (setupNumber.length === 11 && setupNumber.startsWith('01'))
-                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 cursor-pointer'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-750'
-                  }`}
+                <a
+                  href="https://t.me/accounttradecenterXincome_bot"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300 font-bold underline mt-1"
                 >
-                  স্থায়ী সেটআপ সম্পন্ন করুন (Confirm & Register)
+                  <span>👉 টেলিগ্রাম বটে যান (@accounttradecenterXincome_bot)</span>
+                </a>
+              </div>
+
+              <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">
+                    অ্যাডমিন সিকিউরিটি পাসওয়ার্ড (Admin Password)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="পাসওয়ার্ড লিখুন..."
+                    value={adminPasswordInput}
+                    onChange={(e) => setAdminPasswordInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 px-4 py-3.5 rounded-xl text-white text-sm outline-none focus:border-indigo-500 transition-all font-mono"
+                    autoFocus
+                  />
+                </div>
+
+                {loginError && (
+                  <p className="text-xs font-bold text-rose-400 bg-rose-500/10 p-3 rounded-xl border border-rose-500/20">
+                    {loginError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isVerifyingPassword || !adminPasswordInput.trim()}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/25 transition-all text-sm cursor-pointer"
+                >
+                  {isVerifyingPassword ? 'যাচাই করা হচ্ছে...' : 'অ্যাডমিন প্যানেলে লগইন করুন (Access Admin Panel)'}
                 </button>
               </form>
             </motion.div>
           ) : (
             <>
-              {/* DASHBOARD TAB */}
-              {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              {/* Telegram Notification linking promotion */}
-              {(!activeProfile || !(activeProfile as any).telegramChatId) && (
-                <div className="bg-indigo-950/40 border border-indigo-500/20 p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                      </span>
-                      টেলিগ্রাম নোটিফিকেশন লিংক (Telegram Notifications)
-                    </span>
-                    <h4 className="text-sm font-extrabold text-white">তাত্ক্ষণিক কাজের আপডেট এবং পেমেন্ট নোটিফিকেশন পান!</h4>
-                    <p className="text-xs text-indigo-200/80 leading-relaxed max-w-xl font-medium">
-                      আপনার সাবমিট করা আইডি আপ্রুভ বা রিজেক্ট হলে এবং টাকা উত্তোলনের পেমেন্ট কমপ্লিট হলে সাথে সাথে টেলিগ্রাম মেসেজে নোটিফিকেশন পেতে চান? নিচের বাটনে ক্লিক করে আমাদের টেলিগ্রাম বটে গিয়ে আপনার অ্যাকাউন্টটি লিংক করুন।
-                    </p>
-                  </div>
-                  <a
-                    href={`https://t.me/accounttradecenterXincome_bot?start=wallet_${userWalletNumber}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-950/40 transition-all hover:scale-[1.02] active:scale-[0.98] text-center flex items-center justify-center gap-1.5"
-                  >
-                    <span>💬 বটে লিংক করুন</span>
-                  </a>
-                </div>
-              )}
-              {/* Custom Telegram Bot style 6-Button Grid */}
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                      বট ড্যাশবোর্ড মেনু (Quick Bot Menu)
-                    </h3>
-                    <p className="text-[10px] text-slate-500 mt-0.5">কালারফুল বাটনগুলোর মাধ্যমে সরাসরি ফিচারে প্রবেশ করুন</p>
-                  </div>
-                  <span className="text-[9px] font-mono bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/20 uppercase tracking-widest">Bot View</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  {/* Row 1: 📋 কাজ ▸ (Crimson Red / Maroon Background) */}
-                  <button 
-                    onClick={() => setShowWorkSelectModal(true)}
-                    className="md:col-span-2 py-4 px-6 rounded-xl bg-[#8E2424] hover:bg-[#A33B3F] text-white font-bold text-sm shadow-md shadow-red-950/20 flex items-center justify-between border border-[#A93C3C] transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <span className="text-base">📋</span>
-                      <span>কাজ শুরু করুন ▸</span>
-                    </span>
-                    <span className="text-xs bg-black/20 px-2 py-0.5 rounded font-mono">Select Work</span>
-                  </button>
-
-                  {/* Row 2, Col 1: 💵 ব্যালেন্স (Olive-gray Background) */}
-                  <button 
-                    onClick={() => setShowStatsModal(true)}
-                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <span className="text-base">💵</span>
-                    <span>ব্যালেন্স চেক</span>
-                  </button>
-
-                  {/* Row 2, Col 2: 💰 টাকা উত্তোলন (Vibrant/Dark Green Background) */}
-                  <button 
-                    onClick={() => setActiveTab('withdraw')}
-                    className="py-3.5 px-5 rounded-xl bg-[#1E4D2B] hover:bg-[#256036] text-[#A7F3D0] font-bold text-sm shadow-md shadow-emerald-950/20 flex items-center gap-2.5 border border-[#235F35] transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <span className="text-base">💰</span>
-                    <span>টাকা উত্তোলন</span>
-                  </button>
-
-                  {/* Row 3, Col 1: 🎁 My Referrals (Olive-gray Background) */}
-                  <button 
-                    onClick={() => setShowReferralModal(true)}
-                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <span className="text-base">🎁</span>
-                    <span>My Referrals</span>
-                  </button>
-
-                  {/* Row 3, Col 2: 📞 সাপোর্ট (Olive-gray Background) */}
-                  <a 
-                    href="https://t.me/Earnpointcustomercare" 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center justify-center md:justify-start gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99] text-center"
-                  >
-                    <span className="text-base">📞</span>
-                    <span>সাপোর্ট</span>
-                  </a>
-
-                  {/* Row 4: 👶 আমি নতুন (Full Width Muted Gray) */}
-                  <button 
-                    onClick={() => setShowHelpModal(true)}
-                    className="md:col-span-2 py-3.5 px-5 rounded-xl bg-[#2D332D] hover:bg-[#394039] text-[#B5C9BE] font-bold text-sm shadow-sm flex items-center justify-center gap-2.5 border border-[#3E473E] transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  >
-                    <span className="text-base">👶</span>
-                    <span>আমি নতুন (ভিডিও গাইড)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Top Banner Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">মোট আয় (Total Earned)</span>
-                  <div className="mt-2 flex items-baseline gap-1 text-2xl font-extrabold text-white">
-                    <span>৳{calculateUserTotalEarned(workerName)}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 mt-1">৳{settings.ratePerId} Taka per approved ID</span>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">উত্তোলনযোগ্য ব্যালেন্স (Balance)</span>
-                  <div className="mt-2 flex items-baseline gap-1 text-2xl font-extrabold text-emerald-400">
-                    <span>৳{calculateUserBalance(workerName)}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 mt-1">Available for instant Payout</span>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">অনুমোদিত আইডি (Approved)</span>
-                  <div className="mt-2 flex items-baseline gap-1 text-2xl font-extrabold text-blue-400">
-                    <span>{getApprovedCount(workerName)}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 mt-1">Success submissions</span>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
-                  <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">অপেক্ষমান আইডি (Pending)</span>
-                  <div className="mt-2 flex items-baseline gap-1 text-2xl font-extrabold text-amber-500">
-                    <span>{getPendingCount(workerName)}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 mt-1">Under verification review</span>
-                </div>
-              </div>
-
-              {/* Pending Balance Notice */}
-              {getPendingCount(workerName) > 0 && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl flex items-start gap-4 animate-pulse-subtle"
-                >
-                  <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
-                  <div className="text-xs text-slate-300 space-y-1.5">
-                    <span className="font-bold text-amber-500 uppercase tracking-widest block">আইডি ভেরিফিকেশন অপেক্ষমান (Under Verification Review)</span>
-                    <p className="leading-relaxed text-[12px]">
-                      আপনার <strong>{getPendingCount(workerName)}টি আইডি সাবমিশন</strong> বর্তমানে এডমিন ভেরিফিকেশনের জন্য অপেক্ষায় (Pending) রয়েছে। এডমিন এগুলো চেক করে অনুমোদন (Approve) করলে আপনার উত্তোলনযোগ্য ব্যালেন্সে <strong>৳{calculateUserPendingEarned(workerName)} Taka</strong> যুক্ত হবে। আইডিগুলো এপ্রুভ হওয়ার পূর্বে আপনার উইথড্রযোগ্য ব্যালেন্স ৳০ দেখাবে। দয়া করে ধৈর্য ধরুন, ধন্যবাদ!
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Quick Actions Card */}
-              <div className="bg-gradient-to-r from-indigo-950/40 to-slate-900 border border-indigo-900/30 p-8 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white mb-2">ইনস্টাগ্রাম টু-ফ্যাক্টর আইডি কাজ শুরু করুন</h3>
-                  <p className="text-slate-400 text-sm max-w-xl">
-                    এক ক্লিকে নতুন ইনস্টাগ্রাম আইডি তৈরির কাজ শুরু করতে নিচের বাটনে চাপ দিন। আপনার জন্য আমাদের সিস্টেম অটোমেটিক ইউজারনেম ও পাসওয়ার্ড দিয়ে দিবে।
-                  </p>
-                </div>
-                <button 
-                  onClick={() => { setActiveTab('instagram'); handleStartTask(); }}
-                  className="px-6 py-4 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-600/20 whitespace-nowrap transition-all duration-150"
-                >
-                  কাজ শুরু করুন (Start Work)
-                </button>
-              </div>
-
-              {/* Working Instructions */}
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-                  <AlertCircle className="text-indigo-400" size={18} />
-                  <span>আইডি তৈরি ও ২এফএ কাজের নিয়মাবলী</span>
-                </h3>
-                <ol className="space-y-3 text-sm text-slate-300 list-decimal pl-5">
-                  <li>প্রথমে <strong>"আইডি কাজ"</strong> ট্যাবে যান অথবা উপরের <strong>"কাজ শুরু করুন"</strong> বাটনে ক্লিক করুন।</li>
-                  <li>সিস্টেম আপনাকে একটি অটোমেটিক <strong>ইউজারনেম</strong> এবং <strong>পাসওয়ার্ড</strong> প্রদর্শন করবে।</li>
-                  <li>এই ইউজারনেম ও পাসওয়ার্ড ব্যবহার করে ইনস্টাগ্রামে অ্যাকাউন্ট তৈরি করুন।</li>
-                  <li>অ্যাকাউন্ট তৈরির সময় ২-ফ্যাক্টর অথেনটিকেশন (2FA) অপশন চালু করুন এবং ওখানকার <strong>Secret Key (২এফএ কী)</strong> টি কপি করুন।</li>
-                  <li>আমাদের ওয়েবসাইটে এসে <strong>"২-ফ্যাক্টর অথেনটিকেশন কী"</strong> বক্সে কপি করা কী-টি পেস্ট করুন।</li>
-                  <li>পেস্ট করার সাথে সাথে আমাদের ওয়েবসাইট আপনাকে অটোমেটিক একটি ৬ ডিজিটের <strong>২এফএ কোড</strong> দিবে, যা ইনস্টাগ্রাম ভেরিফিকেশনে ব্যবহার করতে পারবেন।</li>
-                  <li>ইনস্টাগ্রামে অ্যাকাউন্ট তৈরি সম্পূর্ণ করা হলে <strong>"অ্যাকাউন্ট তৈরি শেষ - অ্যাডমিনে জমা দিন"</strong> বাটনে ক্লিক করুন।</li>
-                  <li>অ্যাডমিন আপনার জমা দেওয়া তথ্য যাচাই করে অনুমোদন করলে আপনার ব্যালেন্সে টাকা যুক্ত হবে।</li>
-                </ol>
-              </div>
-            </div>
-          )}
-
-          {/* INSTAGRAM WORK TAB */}
-          {activeTab === 'instagram' && (
-            <div className="max-w-xl mx-auto space-y-6">
-              {settings.instagramWorkActive === false ? (
-                <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6 flex-grow">
-                  <div className="w-16 h-16 bg-rose-600/10 rounded-full flex items-center justify-center mx-auto border border-rose-500/20">
-                    <AlertCircle size={32} className="text-rose-400 animate-pulse" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-white mb-2">কাজটি সাময়িকভাবে বন্ধ আছে</h2>
-                    <p className="text-slate-400 text-sm">
-                      আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {!credentials && submissionStatus !== 'success' && (
-                <div className="flex flex-col h-full">
-                  <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6 flex-grow">
-                    <div className="w-16 h-16 bg-indigo-600/10 rounded-full flex items-center justify-center mx-auto border border-indigo-600/20">
-                      <Instagram size={32} className="text-indigo-400" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-white mb-2">Instagram 2FA ID Work</h2>
-                      <p className="text-slate-400 text-sm">
-                        নতুন অ্যাকাউন্ট খোলার জন্য ইউজারনেম ও পাসওয়ার্ড তৈরি করতে নিচের বাটনে ক্লিক করুন।
-                      </p>
-                    </div>
-                  </div>
-                  
-                <button 
-                  onClick={handleStartTask} 
-                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/25 transition-all"
-                >
-                  নতুন আইডি তৈরি শুরু করুন
-                </button>
-                </div>
-              )}
-
-              {credentials && submissionStatus !== 'success' && (
-                <div className="bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-2xl shadow-2xl space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold text-white">Instagram Credentials</h2>
-                    <span className="text-[10px] text-indigo-400 font-bold bg-indigo-400/10 px-2.5 py-1 rounded">Active Generator</span>
-                  </div>
-
-                  <div className="space-y-4">
-                    {/* Username copy row */}
-                    <div>
-                      <label className="text-[10px] uppercase font-bold tracking-widest text-slate-500 block mb-1">Generated Username</label>
-                      <div className="flex gap-2">
-                        <div className="flex-grow bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg font-mono text-sm text-indigo-400 tracking-wide select-all truncate">
-                          {credentials.username}
-                        </div>
-                        <button 
-                          onClick={() => copyToClipboard(credentials.username, 'user')}
-                          className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-w-[70px] justify-center"
-                        >
-                          <Clipboard size={14} />
-                          <span>{copiedField === 'user' ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Password copy row */}
-                    <div>
-                      <label className="text-[10px] uppercase font-bold tracking-widest text-slate-500 block mb-1">Generated Password</label>
-                      <div className="flex gap-2">
-                        <div className="flex-grow bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg font-mono text-sm text-indigo-400 tracking-wide select-all truncate">
-                          {credentials.password}
-                        </div>
-                        <button 
-                          onClick={() => copyToClipboard(credentials.password, 'pass')}
-                          className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap min-w-[70px] justify-center"
-                        >
-                          <Clipboard size={14} />
-                          <span>{copiedField === 'pass' ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 2FA input */}
-                    <div className="pt-2 border-t border-slate-800/60">
-                      <label className="text-[10px] uppercase font-bold tracking-widest text-slate-500 block mb-1.5">২-ফ্যাক্টর অথেনটিকেশন কী (Paste 2FA Secret Key)</label>
-                      <input 
-                        type="text" 
-                        placeholder="ইনস্টাগ্রাম থেকে কপি করা 2FA Secret Key টি এখানে দিন..." 
-                        value={twoFactorKey} 
-                        onChange={(e) => setTwoFactorKey(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 p-4 rounded-lg font-mono text-base tracking-widest text-indigo-300 transition-all outline-none"
-                      />
-                    </div>
-
-                    {/* Dynamic OTP Generated Box */}
-                    {twoFactorKey && (
-                      <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 text-center flex flex-col items-center justify-center relative overflow-hidden">
-                        <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-1">২-ফ্যাক্টর ভেরিফিকেশন কোড (TOTP Code)</span>
-                        <div className="text-4xl font-bold font-mono tracking-widest text-indigo-400 my-2">
-                          {generatedCode}
-                        </div>
-                        
-                        <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold tracking-wider">
-                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></div>
-                          <span>Refreshes in {totpCountdown} seconds</span>
-                        </div>
-                        
-                        {generatedCode !== "INVALID" && generatedCode !== "------" && (
-                          <button 
-                            onClick={() => copyToClipboard(generatedCode, 'code')}
-                            className="mt-3 px-3 py-1 bg-indigo-600/10 border border-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all text-xs rounded-full font-medium"
-                          >
-                            {copiedField === 'code' ? 'Copied 2FA Code!' : 'Copy 2FA Code'}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Submit accounts button */}
-                  <div className="pt-4 border-t border-slate-800">
-                    <button 
-                      onClick={handleAccountSubmit} 
-                      disabled={!credentials || !twoFactorKey || submissionStatus === 'submitting'}
-                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold rounded-xl shadow-lg transition-all text-sm tracking-wide"
-                    >
-                      {submissionStatus === 'submitting' ? 'জমা দেওয়া হচ্ছে...' : 'অ্যাকাউন্ট তৈরি শেষ - অ্যাডমিনে জমা দিন'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {submissionStatus === 'success' && (
-                <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6">
-                  <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20">
-                    <CheckCircle size={32} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-white mb-2">অনুরোধ সফলভাবে জমা হয়েছে!</h2>
-                    <p className="text-slate-400 text-sm max-w-sm mx-auto">
-                      আপনার সাবমিট করা অ্যাকাউন্টটি অ্যাডমিন প্যানেলে জমা দেওয়া হয়েছে। এডমিন যাচাই করে পেমেন্ট রিলিজ করবে।
-                    </p>
-                  </div>
-                  <button 
-                    onClick={handleStartTask} 
-                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all text-sm"
-                  >
-                    আরেকটি আইডি কাজ শুরু করুন
-                  </button>
-                </div>
-              )}
-              </>
-              )}
-            </div>
-          )}
-
-          {/* WITHDRAW TAB */}
-          {activeTab === 'withdraw' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-5xl mx-auto">
-              
-              {/* Request Payout Form */}
-              <div className="lg:col-span-5 bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-5">
-                <h3 className="text-lg font-bold text-white">টাকা উত্তোলন করুন (Withdraw Cash)</h3>
-                
-                <form onSubmit={handleWithdrawRequest} className="space-y-4">
-                  {settings.withdrawalsEnabled === false && (
-                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs font-bold leading-relaxed">
-                      ⚠️ অ্যাডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।
-                    </div>
-                  )}
-
-                  {/* Select Platform Payment Method */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">উত্তোলন মাধ্যম (Method) - স্থায়ী লক 🔒</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['bKash', 'Nagad', 'Rocket'] as const).map(method => (
-                        <button
-                          key={method}
-                          type="button"
-                          disabled
-                          className={`py-2 px-3 text-xs font-bold rounded-lg border text-center transition-all ${userWalletType === method ? 'bg-indigo-600/10 border-indigo-500/40 text-indigo-400' : 'bg-slate-950/30 border-slate-900 text-slate-600'}`}
-                        >
-                          {method === 'bKash' ? 'বিকাশ' : method === 'Nagad' ? 'নগদ' : 'রকেট'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Account number */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">অ্যাকাউন্ট নাম্বার (Phone Number) - স্থায়ী লক 🔒</label>
-                    <input 
-                      type="text" 
-                      disabled
-                      value={userWalletNumber}
-                      className="w-full bg-slate-950/40 border border-slate-900 px-4 py-3 rounded-lg text-slate-500 text-sm outline-none font-mono cursor-not-allowed"
-                    />
-                    <p className="text-[9px] text-slate-500 mt-1">🔒 আপনার স্থায়ী ওয়ালেট নাম্বার ছাড়া অন্য কোনো নাম্বারে উত্তোলন সম্ভব নয়।</p>
-                  </div>
-
-                  {/* Withdraw Amount */}
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">উত্তোলনের পরিমাণ (Amount in Taka)</label>
-                    <input 
-                      type="number" 
-                      placeholder={`৳ সর্বনিম্ন ৳${settings.minWithdraw || 50}`}
-                      value={withdrawAmount}
-                      disabled={settings.withdrawalsEnabled === false}
-                      onChange={(e) => setWithdrawAmount(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 disabled:opacity-50 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  {/* Notification Alerts */}
-                  {withdrawMsg && (
-                    <div className={`p-3 rounded-lg text-xs font-semibold ${withdrawMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
-                      {withdrawMsg.text}
-                    </div>
-                  )}
-
-                  <button 
-                    type="submit"
-                    disabled={settings.withdrawalsEnabled === false}
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all text-sm"
-                  >
-                    {settings.withdrawalsEnabled === false ? 'উত্তোলন বন্ধ রয়েছে' : 'উত্তোলন অনুরোধ পাঠান (Submit Request)'}
-                  </button>
-                </form>
-              </div>
-
-              {/* History list */}
-              <div className="lg:col-span-7 bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col h-full">
-                <h3 className="text-base font-bold text-white mb-4">উত্তোলন ইতিহাস (Withdrawal History)</h3>
-                
-                <div className="space-y-3 overflow-y-auto max-h-[360px] flex-grow pr-1">
-                  {withdrawals.filter(w => w.submittedBy === workerName).length === 0 ? (
-                    <div className="p-8 text-center text-slate-500 text-sm">আপনার উত্তোলনের কোনো ইতিহাস নেই।</div>
-                  ) : (
-                    withdrawals.filter(w => w.submittedBy === workerName).map((w, index) => (
-                      <div key={w.id || index} className="p-4 bg-slate-950 border border-slate-850 rounded-xl flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded uppercase ${
-                              w.method === 'bKash' ? 'bg-pink-600/10 text-pink-500 border border-pink-500/20' :
-                              w.method === 'Nagad' ? 'bg-orange-600/10 text-orange-500 border border-orange-500/20' :
-                              'bg-sky-600/10 text-sky-500 border border-sky-500/20'
-                            }`}>{w.method}</span>
-                            <span className="text-slate-400 text-xs font-medium font-mono">{w.number}</span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 mt-1">{new Date(w.createdAt).toLocaleString()}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-bold text-white">৳{w.amount}</span>
-                          <span className={`text-[9px] px-2 py-1 rounded-full font-bold uppercase tracking-wide ${
-                            w.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                            w.status === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
-                            'bg-amber-500/10 text-amber-500'
-                          }`}>
-                            {w.status === 'approved' ? 'Approved' : w.status === 'rejected' ? 'Rejected' : 'Pending'}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-            </div>
-          )}
 
           {/* ADMIN: FACEBOOK CONTROL TAB */}
           {activeTab === 'admin_facebook' && (

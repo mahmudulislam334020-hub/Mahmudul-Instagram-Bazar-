@@ -167,6 +167,31 @@ export default function AdminInstagram({
     document.body.removeChild(link);
   };
 
+  // Export specific user's submissions as Excel (CSV)
+  const handleExportUserCSV = (worker: string, subs: Submission[]) => {
+    if (!subs || subs.length === 0) return;
+    const headers = ["Username", "Password", "2FA Key", "Submitted By", "Status", "Submitted At"];
+    const rows = subs.map(s => [
+      s.username,
+      s.password,
+      s.twoFactorKey || "",
+      s.submittedBy,
+      s.status,
+      new Date(s.createdAt).toLocaleString()
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(","))].join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `instagram_user_${worker}_ids_${new Date().toLocaleDateString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
@@ -648,7 +673,17 @@ export default function AdminInstagram({
 
                     {isExpanded && (
                       <div className="border-t border-slate-800/80 bg-slate-950/40 p-5 space-y-3">
-                        <h5 className="text-xs font-bold text-slate-300">সাবমিটকৃত ইন্সটাগ্রাম আইডির তালিকা:</h5>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h5 className="text-xs font-bold text-slate-300">সাবমিটকৃত ইন্সটাগ্রাম আইডির তালিকা:</h5>
+                          <button
+                            type="button"
+                            onClick={() => handleExportUserCSV(group.worker, group.submissions)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-lg shadow transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download size={13} />
+                            <span>এই ইউজারের আইডি এক্সেল (Excel) ডাউনলোড ({group.submissions.length}টি)</span>
+                          </button>
+                        </div>
                         <div className="overflow-x-auto rounded-xl border border-slate-800">
                           <table className="w-full text-left border-collapse">
                             <thead>

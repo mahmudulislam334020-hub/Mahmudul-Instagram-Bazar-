@@ -442,51 +442,8 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
 }
 
 export async function applyCompensationAndApologyForUsers(): Promise<void> {
-  const usersToCompensate = [
-    { walletNumber: "01897866847", amount: 8.40 },
-    { walletNumber: "8177906650", amount: 8.40 }
-  ];
-
-  for (const user of usersToCompensate) {
-    try {
-      const profile = await getUserProfile(user.walletNumber);
-      const currentBonus = profile?.bonusBalance || 0;
-      const docRef = doc(db, "profiles", user.walletNumber);
-      if (profile) {
-        if (!profile.bonusBalance || profile.bonusBalance < user.amount) {
-          await updateDoc(docRef, { bonusBalance: Math.max(currentBonus, user.amount) });
-        }
-      } else {
-        await setDoc(docRef, {
-          walletNumber: user.walletNumber,
-          walletType: "bKash",
-          createdAt: new Date().toISOString(),
-          bonusBalance: user.amount,
-          accumulatedApprovedEarnings: 0
-        });
-      }
-
-      // Trigger Telegram notification
-      fetch("/api/telegram-direct-notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetWalletNumber: user.walletNumber,
-          type: "bonus_credit",
-          details: {
-            message: `🎁 <b>বোনাস ব্যালেন্স যোগ ও আন্তরিক সমবেদনা/দুঃখপ্রকাশ!</b>\n\n` +
-                     `সম্মানিত সদস্য,\n` +
-                     `আমাদের সিস্টেমে ডাটাবেজ থেকে পুরোনো বা ১ দিনের আইডি মোছার সময় আপনার ব্যালেন্স সাময়িকভাবে জিরো (0.00) দেখানোর একটি কারিগরি ত্রুটি হয়েছিল।\n\n` +
-                     `আমরা সমস্যাটি পার্মানেন্টলি সমাধান করেছি এবং ক্ষতিপূরণ হিসেবে ২ টি ইনস্টাগ্রাম কাজ সমপরিমাণ <b>৳৮.৪০ টাকা</b> (8.40 Taka) আপনার ওয়ালেট ব্যালেন্সে যোগ করে দেওয়া হয়েছে।\n\n` +
-                     `আকস্মিক ভুলের জন্য আমরা আন্তরিকভাবে ক্ষমা প্রার্থনাসহ দুঃখ প্রকাশ করছি। এখন থেকে ডাটাবেজ থেকে আইডি মুছে ফেলা হলেও আপনার মোট উপার্জন ও ব্যালেন্স সবসময় ১০০% সুরক্ষিত থাকবে! ❤️`
-          }
-        })
-      }).catch(err => console.error("Apology notification trigger error:", err));
-
-    } catch (err) {
-      console.error(`Error compensating user ${user.walletNumber}:`, err);
-    }
-  }
+  // Compensation already applied and auto-messages stopped.
+  return;
 }
 
 export async function clearAllWithdrawals(): Promise<void> {

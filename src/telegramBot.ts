@@ -952,8 +952,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
-      if (stats.balance <= 0) {
-        await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b> আপনার পর্যাপ্ত ব্যালেন্স নেই। বর্তমানে আপনার ব্যালেন্স ৳০ Taka।`, {
+      const minWithdrawLimit = settings.minWithdraw !== undefined ? settings.minWithdraw : 50;
+
+      if (stats.balance < minWithdrawLimit) {
+        await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b>\n\nটাকা তুলতে আপনার ব্যালেন্সে সর্বনিম্ন ৳<b>${minWithdrawLimit}</b> Taka থাকতে হবে।\nবর্তমানে আপনার ব্যালেন্স: ৳<b>${stats.balance}</b> Taka।`, {
+          parse_mode: "HTML",
           reply_markup: {
             keyboard: [
               [{ text: "💼 কাজ" }],
@@ -1530,6 +1533,18 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     const amount = parseFloat(text.replace(/\D/g, ""));
     if (isNaN(amount) || amount <= 0) {
       await bot.sendMessage(chatId, `❌ <b>ভুল পরিমাণ!</b> শুধুমাত্র সংখ্যায় পরিমাণটি লিখুন (যেমন: ৫০০):`, {
+        reply_markup: {
+          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    const minWithdrawLimit = settings.minWithdraw !== undefined ? settings.minWithdraw : 50;
+    if (amount < minWithdrawLimit) {
+      await bot.sendMessage(chatId, `❌ <b>কম পরিমাণের উইথড্র!</b>\n\nএডমিন সেট করা সর্বনিম্ন উইথড্র পরিমাণ হলো ৳<b>${minWithdrawLimit}</b> Taka। আপনার প্রদানকৃত পরিমাণ: ৳<b>${amount}</b> Taka।\n\nঅনুগ্রহ করে ৳<b>${minWithdrawLimit}</b> Taka বা তার বেশি পরিমাণ লিখে পাঠান:`, {
+        parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "🔙 মেইন মেনু" }]],
           resize_keyboard: true

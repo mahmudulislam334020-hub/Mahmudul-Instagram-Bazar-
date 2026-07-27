@@ -38,7 +38,6 @@ import {
   saveUserProfile,
   getUserProfile,
   getAllUserProfiles,
-  applyCompensationAndApologyForUsers,
   clearAllSubmissions,
   clearSubmissionsByCategory,
   clearAllWithdrawals,
@@ -361,7 +360,6 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
-    applyCompensationAndApologyForUsers();
     const interval = setInterval(loadAllData, 20000); // Poll every 20 seconds
     return () => clearInterval(interval);
   }, []);

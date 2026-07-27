@@ -141,6 +141,34 @@ export default function AdminFacebook({
     }
   };
 
+  // Export filtered submissions by password as Excel (CSV)
+  const handleExportFilteredCSV = () => {
+    if (displayedSubmissions.length === 0) return;
+    const headers = ["UID", "Password", "First Name", "Last Name", "Cookie", "Submitted By", "Status", "Submitted At"];
+
+    const rows = displayedSubmissions.map(s => [
+      s.username,
+      s.password,
+      s.firstName || "",
+      s.lastName || "",
+      s.cookie || "",
+      s.submittedBy,
+      s.status,
+      new Date(s.createdAt).toLocaleString()
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(","))].join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `facebook_filtered_passwords_${passwordFilter || 'all'}_${new Date().toLocaleDateString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
@@ -366,19 +394,30 @@ export default function AdminFacebook({
                   </div>
 
                   {displayedSubmissions.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleDeleteFilteredByPassword}
-                      disabled={isBulkDeletingByPassword}
-                      className="w-full sm:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0"
-                    >
-                      <Trash2 size={14} />
-                      <span>
-                        {isBulkDeletingByPassword
-                          ? 'ডিলিট হচ্ছে...'
-                          : `এই ডেটের/পাসওয়ার্ডের সব (${displayedSubmissions.length}টি) আইডি মুছে ফেলুন`}
-                      </span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={handleExportFilteredCSV}
+                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                      >
+                        <Download size={14} />
+                        <span>এক্সেল ডাউনলোড ({displayedSubmissions.length}টি)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDeleteFilteredByPassword}
+                        disabled={isBulkDeletingByPassword}
+                        className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                      >
+                        <Trash2 size={14} />
+                        <span>
+                          {isBulkDeletingByPassword
+                            ? 'ডিলিট হচ্ছে...'
+                            : `এই পাসওয়ার্ডের আইডি সব ডিলিট (${displayedSubmissions.length}টি)`}
+                        </span>
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

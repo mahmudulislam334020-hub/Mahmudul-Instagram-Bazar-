@@ -38,6 +38,7 @@ import {
   saveUserProfile,
   getUserProfile,
   getAllUserProfiles,
+  applyCompensationAndApologyForUsers,
   clearAllSubmissions,
   clearSubmissionsByCategory,
   clearAllWithdrawals,
@@ -174,6 +175,8 @@ export default function App() {
 
   // DB Data States
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
   
   const adminCategory = useMemo<'instagram' | 'facebook'>(() => {
     if (activeTab === 'admin_facebook') return 'facebook';
@@ -219,7 +222,6 @@ export default function App() {
     return Object.values(groups);
   }, [categoryFilteredSubmissions]);
 
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Onboarding setup states
@@ -347,6 +349,9 @@ export default function App() {
 
       const fetchedWithdraws = await getWithdrawals();
       setWithdrawals(fetchedWithdraws);
+
+      const fetchedProfiles = await getAllUserProfiles();
+      setAllProfiles(fetchedProfiles);
     } catch (e) {
       console.error("Error loading data:", e);
     } finally {
@@ -356,6 +361,7 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
+    applyCompensationAndApologyForUsers();
     const interval = setInterval(loadAllData, 20000); // Poll every 20 seconds
     return () => clearInterval(interval);
   }, []);
@@ -1065,9 +1071,12 @@ export default function App() {
   };
 
   // Helper calculation functions
-  const calculateUserBalance = (name: string) => {
+  const calculateUserTotalEarned = (name: string) => {
+    const profile = allProfiles.find(p => p.walletNumber === name);
+    const extraEarnings = (profile?.accumulatedApprovedEarnings || 0) + (profile?.bonusBalance || 0);
+
     const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
-    const totalEarned = userApprovedSubs.reduce((sum, s) => {
+    const activeEarned = userApprovedSubs.reduce((sum, s) => {
       if (s.rate !== undefined) {
         return sum + s.rate;
       }
@@ -1077,6 +1086,12 @@ export default function App() {
         : settings.ratePerId;
       return sum + rate;
     }, 0);
+
+    return activeEarned + extraEarnings;
+  };
+
+  const calculateUserBalance = (name: string) => {
+    const totalEarned = calculateUserTotalEarned(name);
     
     // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
     const withdrawnAmount = withdrawals
@@ -1084,20 +1099,6 @@ export default function App() {
       .reduce((sum, current) => sum + current.amount, 0);
 
     return Math.max(0, totalEarned - withdrawnAmount);
-  };
-
-  const calculateUserTotalEarned = (name: string) => {
-    const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
-    return userApprovedSubs.reduce((sum, s) => {
-      if (s.rate !== undefined) {
-        return sum + s.rate;
-      }
-      const isFacebook = s.category === 'facebook';
-      const rate = isFacebook 
-        ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-        : settings.ratePerId;
-      return sum + rate;
-    }, 0);
   };
 
   const calculateUserPendingEarned = (name: string) => {

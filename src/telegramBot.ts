@@ -222,8 +222,28 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
   const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
 
+  // Fetch extra preserved earnings & bonus balance from user profile in Firestore
+  let extraEarnings = 0;
+  try {
+    let profileData: any = null;
+    if (walletNumber) {
+      const pDoc = await getDoc(doc(db, "profiles", walletNumber));
+      if (pDoc.exists()) profileData = pDoc.data();
+    }
+    if (!profileData && telegramChatId) {
+      const pQuery = query(collection(db, "profiles"), where("telegramChatId", "==", String(telegramChatId)), limit(1));
+      const pSnap = await getDocs(pQuery);
+      if (!pSnap.empty) profileData = pSnap.docs[0].data();
+    }
+    if (profileData) {
+      extraEarnings = (profileData.accumulatedApprovedEarnings || 0) + (profileData.bonusBalance || 0);
+    }
+  } catch (pErr) {
+    console.warn("Failed to fetch user profile for extra earnings:", pErr);
+  }
+
   // Calculate rate based on category
-  const totalEarned = userSubmissions
+  const activeEarned = userSubmissions
     .filter(s => s.status === "approved")
     .reduce((sum, s) => {
       if (s.rate !== undefined) {
@@ -233,6 +253,8 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
       const rate = isFacebook ? facebookRatePerId : ratePerId;
       return sum + rate;
     }, 0);
+
+  const totalEarned = activeEarned + extraEarnings;
 
   // Fetch withdrawals for this user (by telegramChatId and/or walletNumber)
   const withdrawalsRef = collection(db, "withdrawals");
@@ -1863,7 +1885,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
         const errMsg = err?.message || err?.code || "";
         if (errMsg.includes("409 Conflict")) {
           console.warn("⚠️ [Telegram Bot] Polling conflict (409) detected: Another bot instance is currently active.");
-          console.warn("🛑 Stopping polling on this server to prevent interfering with your active production bot.");
+          console.warn("🛑 Pausing polling temporarily and retrying in 10 seconds...");
           try {
             if (bot.isPolling()) {
               await bot.stopPolling();
@@ -1871,13 +1893,26 @@ export async function syncTelegramBot(isFromWebhook = false) {
           } catch (stopErr) {
             // Ignore
           }
+          // Retry polling after 10s delay (useful during container redeployments on Render)
+          setTimeout(async () => {
+            try {
+              if (currentBot === bot && !bot.isPolling()) {
+                console.log("🔄 Retrying Telegram Bot startPolling after conflict pause...");
+                await bot.deleteWebHook();
+                await bot.startPolling();
+                console.log("✅ Telegram Bot polling resumed successfully.");
+              }
+            } catch (retryErr) {
+              console.error("Failed to resume polling after 409 conflict:", retryErr);
+            }
+          }, 10000);
         } else {
           console.error("Telegram Bot Polling Error:", err);
         }
       });
       
       try {
-        console.log("Deleting any active Telegram Webhook to enable fast polling...");
+        console.log("Deleting any active Telegram Webhook to enable fast polling mode...");
         await bot.deleteWebHook();
       } catch (whErr) {
         console.error("Error deleting webhook:", whErr);
@@ -1885,7 +1920,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
 
       // Start polling cleanly
       await bot.startPolling();
-      console.log("Telegram Bot successfully initialized and polling started.");
+      console.log("⚡ Telegram Bot successfully initialized in Polling Mode and polling started!");
     }
 
   } catch (error) {

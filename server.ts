@@ -314,6 +314,8 @@ app.use((req, res, next) => {
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +
                `🏦 <b>ওয়ালেট:</b> <b>${details.method}</b> (${details.number})\n\n` +
                `⚠️ কোনো ত্রুটির কারণে আপনার উত্তোলন অনুরোধ বাতিল করা হয়েছে। টাকাটি আপনার ওয়ালেট ব্যালেন্সে ফেরত দেওয়া হয়েছে। অনুগ্রহ করে এডমিনের সাথে যোগাযোগ করুন।`;
+      } else if (type === "bonus_credit" || type === "custom_message") {
+        text = details?.message || details?.text || "আপডেট নোটিফিকেশন";
       }
 
       const url = `https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`;

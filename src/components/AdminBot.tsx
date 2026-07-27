@@ -183,30 +183,47 @@ export default function AdminBot({
             </p>
           </div>
 
-          {/* Telegram Webhook / Vercel / Render URL */}
+          {/* Telegram Mode & Server Webhook URL */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] uppercase font-bold text-slate-500 block">Server Webhook URL (Vercel / Render App URL)</label>
-              <button
-                type="button"
-                onClick={handleTestWebhook}
-                disabled={testingWebhook}
-                className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 disabled:opacity-50"
-              >
-                <RefreshCw size={12} className={testingWebhook ? "animate-spin" : ""} />
-                <span>{testingWebhook ? "যাচাই করা হচ্ছে..." : "ওয়েব হুক স্ট্যাটাস চেক"}</span>
-              </button>
+              <label className="text-[10px] uppercase font-bold text-slate-500 block">বট মোড ও Webhook URL (Render / Server)</label>
+              <div className="flex items-center gap-3">
+                {settings.webhookUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setAppSettings(prev => ({ ...prev, webhookUrl: '' }))}
+                    className="text-[11px] font-bold text-amber-400 hover:text-amber-300 hover:underline"
+                  >
+                    ⚡ পোলিং মোড সেট করুন (Webhook মুছুন)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleTestWebhook}
+                  disabled={testingWebhook}
+                  className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={testingWebhook ? "animate-spin" : ""} />
+                  <span>{testingWebhook ? "যাচাই করা হচ্ছে..." : "বট স্ট্যাটাস চেক"}</span>
+                </button>
+              </div>
             </div>
             <input 
               type="text"
-              placeholder="e.g. https://your-app.vercel.app or https://your-app.onrender.com"
+              placeholder="পোলিং (Polling) মোড চালাতে এটি খালি রাখুন অথবা Webhook URL দিন"
               value={settings.webhookUrl || ''}
               onChange={(e) => setAppSettings(prev => ({ ...prev, webhookUrl: e.target.value }))}
               className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all font-mono text-xs"
             />
-            <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-              🚀 <b>ভার্সেল (Vercel) / রেন্ডার-এ ২৪/৭ ঘণ্টা বট সচল রাখার উপায়:</b> আপনার Vercel অ্যাপের মেইন ডোমেইন লিঙ্কটি এখানে দিন (যেমন: <code>https://your-app.vercel.app</code>)। সেটিংস সেভ করলেই টেলিগ্রাম বট <b>WebHook (ওয়েব হুক)</b> মোডে সেট হয়ে যাবে। এর ফলে আপনার ব্রাউজার বন্ধ থাকলেও বা আপনি এখানে না থাকলেও টেলিগ্রামে কোনো মেসেজ আসলেই ভার্সেল সার্ভার সাথে সাথে রেসপন্স করে ২৪/৭ অটো-রিপ্লাই দিবে!
-            </p>
+            <div className="mt-2 p-3 bg-indigo-950/40 border border-indigo-800/40 rounded-xl space-y-1.5 text-xs text-indigo-200">
+              <p className="font-semibold flex items-center gap-1.5 text-indigo-300">
+                <span>⚡</span>
+                <span>রেন্ডার (Render Web Service) এ Polling (পোলিং) মোড:</span>
+              </p>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                রেন্ডার সার্ভারে বটকে পোলিং মোডে চালাতে ওপরের <b>Server Webhook URL</b> ঘরটি সম্পূর্ণ <b>খালি রেখে সেভ করুন</b>। তাহলে রেন্ডার ব্যাকএন্ডে টেলিগ্রাম বটটি ২৪/৭ পোলিং মোডে সক্রিয় থাকবে এবং সাথে সাথে মেসেজ প্রসেস করবে।
+              </p>
+            </div>
 
             {webhookInfo && (
               <div className={`mt-2 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap leading-relaxed ${

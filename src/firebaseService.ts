@@ -65,6 +65,8 @@ export interface UserProfile {
   walletType: "bKash" | "Nagad" | "Rocket";
   createdAt: string;
   telegramChatId?: string;
+  bonusBalance?: number;
+  accumulatedApprovedEarnings?: number;
 }
 
 // Memory & LocalStorage Fallback database to ensure 100% uptime and testability
@@ -193,9 +195,39 @@ export async function updateSubmissionSubmittedBy(id: string, submittedBy: strin
   }
 }
 
+export async function preserveUserEarnings(walletNumber: string, amount: number): Promise<void> {
+  if (!walletNumber || amount <= 0) return;
+  try {
+    const docRef = doc(db, "profiles", walletNumber);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const current = docSnap.data().accumulatedApprovedEarnings || 0;
+      await updateDoc(docRef, { accumulatedApprovedEarnings: current + amount });
+    } else {
+      await setDoc(docRef, {
+        walletNumber,
+        walletType: "bKash",
+        createdAt: new Date().toISOString(),
+        accumulatedApprovedEarnings: amount,
+        bonusBalance: 0
+      });
+    }
+  } catch (err) {
+    console.warn(`Failed to preserve earnings for ${walletNumber}:`, err);
+  }
+}
+
 export async function deleteSubmission(id: string): Promise<void> {
   try {
     const docRef = doc(db, "submissions", id);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (data.status === "approved" && data.submittedBy) {
+        const rate = data.rate !== undefined ? data.rate : 4.2;
+        await preserveUserEarnings(data.submittedBy, rate);
+      }
+    }
     await withTimeout(deleteDoc(docRef));
   } catch (error) {
     console.warn("Firestore delete submission error, using fallback:", error);
@@ -369,6 +401,11 @@ export async function clearAllSubmissions(): Promise<void> {
     const querySnapshot = await withTimeout(getDocs(q), 5000);
     const deletePromises: Promise<void>[] = [];
     querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.status === "approved" && data.submittedBy) {
+        const rate = data.rate !== undefined ? data.rate : 4.2;
+        preserveUserEarnings(data.submittedBy, rate);
+      }
       deletePromises.push(deleteDoc(docSnap.ref));
     });
     await Promise.all(deletePromises);
@@ -388,6 +425,10 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
       const data = docSnap.data();
       const subCategory = data.category || "instagram";
       if (subCategory === category) {
+        if (data.status === "approved" && data.submittedBy) {
+          const rate = data.rate !== undefined ? data.rate : 4.2;
+          preserveUserEarnings(data.submittedBy, rate);
+        }
         deletePromises.push(deleteDoc(docSnap.ref));
       }
     });
@@ -398,6 +439,54 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
   const subs = getFallbackSubmissions();
   const filtered = subs.filter(s => (s.category || "instagram") !== category);
   saveFallbackSubmissions(filtered);
+}
+
+export async function applyCompensationAndApologyForUsers(): Promise<void> {
+  const usersToCompensate = [
+    { walletNumber: "01897866847", amount: 8.40 },
+    { walletNumber: "8177906650", amount: 8.40 }
+  ];
+
+  for (const user of usersToCompensate) {
+    try {
+      const profile = await getUserProfile(user.walletNumber);
+      const currentBonus = profile?.bonusBalance || 0;
+      const docRef = doc(db, "profiles", user.walletNumber);
+      if (profile) {
+        if (!profile.bonusBalance || profile.bonusBalance < user.amount) {
+          await updateDoc(docRef, { bonusBalance: Math.max(currentBonus, user.amount) });
+        }
+      } else {
+        await setDoc(docRef, {
+          walletNumber: user.walletNumber,
+          walletType: "bKash",
+          createdAt: new Date().toISOString(),
+          bonusBalance: user.amount,
+          accumulatedApprovedEarnings: 0
+        });
+      }
+
+      // Trigger Telegram notification
+      fetch("/api/telegram-direct-notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetWalletNumber: user.walletNumber,
+          type: "bonus_credit",
+          details: {
+            message: `🎁 <b>বোনাস ব্যালেন্স যোগ ও আন্তরিক সমবেদনা/দুঃখপ্রকাশ!</b>\n\n` +
+                     `সম্মানিত সদস্য,\n` +
+                     `আমাদের সিস্টেমে ডাটাবেজ থেকে পুরোনো বা ১ দিনের আইডি মোছার সময় আপনার ব্যালেন্স সাময়িকভাবে জিরো (0.00) দেখানোর একটি কারিগরি ত্রুটি হয়েছিল।\n\n` +
+                     `আমরা সমস্যাটি পার্মানেন্টলি সমাধান করেছি এবং ক্ষতিপূরণ হিসেবে ২ টি ইনস্টাগ্রাম কাজ সমপরিমাণ <b>৳৮.৪০ টাকা</b> (8.40 Taka) আপনার ওয়ালেট ব্যালেন্সে যোগ করে দেওয়া হয়েছে।\n\n` +
+                     `আকস্মিক ভুলের জন্য আমরা আন্তরিকভাবে ক্ষমা প্রার্থনাসহ দুঃখ প্রকাশ করছি। এখন থেকে ডাটাবেজ থেকে আইডি মুছে ফেলা হলেও আপনার মোট উপার্জন ও ব্যালেন্স সবসময় ১০০% সুরক্ষিত থাকবে! ❤️`
+          }
+        })
+      }).catch(err => console.error("Apology notification trigger error:", err));
+
+    } catch (err) {
+      console.error(`Error compensating user ${user.walletNumber}:`, err);
+    }
+  }
 }
 
 export async function clearAllWithdrawals(): Promise<void> {

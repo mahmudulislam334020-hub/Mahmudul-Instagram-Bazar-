@@ -10,7 +10,8 @@ import {
   AlertCircle, 
   User,
   Key,
-  Search
+  Search,
+  Wallet
 } from 'lucide-react';
 import { Submission, AppSettings, Withdrawal } from '../firebaseService';
 
@@ -47,6 +48,7 @@ export interface AdminInstagramProps {
   withdrawals: Withdrawal[];
   igSubTab: 'submissions' | 'summary' | 'settings' | 'clear';
   setIgSubTab: React.Dispatch<React.SetStateAction<'submissions' | 'summary' | 'settings' | 'clear'>>;
+  calculateUserBalance?: (workerName: string) => number;
 }
 
 export default function AdminInstagram({
@@ -81,7 +83,8 @@ export default function AdminInstagram({
   settingsStatus,
   withdrawals,
   igSubTab,
-  setIgSubTab
+  setIgSubTab,
+  calculateUserBalance
 }: AdminInstagramProps) {
   const [passwordFilter, setPasswordFilter] = React.useState('');
   const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
@@ -649,8 +652,14 @@ export default function AdminInstagram({
                             {group.worker}
                             <span className="text-[10px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded-full font-bold border border-pink-500/15">Instagram Worker</span>
                           </h4>
-                          <p className="text-[10.5px] text-slate-400 mt-1">
-                            মোট ইন্সটাগ্রাম আইডি সাবমিট করেছেন: <strong className="text-white">{group.total} টি</strong>
+                          <p className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                            <span>মোট ইন্সটাগ্রাম আইডি সাবমিট করেছেন: <strong className="text-white">{group.total} টি</strong></span>
+                            {calculateUserBalance && (
+                              <span className="text-[10.5px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                <Wallet size={11} />
+                                <span>ব্যালেন্স: ৳{calculateUserBalance(group.worker)} Taka</span>
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>

@@ -39,6 +39,7 @@ export interface Withdrawal {
   createdAt: string;
   submittedBy: string;
   telegramChatId?: string;
+  transactionId?: string;
 }
 
 export interface AppSettings {
@@ -267,16 +268,23 @@ export async function getWithdrawals(): Promise<Withdrawal[]> {
   }
 }
 
-export async function updateWithdrawalStatus(id: string, status: "approved" | "rejected"): Promise<void> {
+export async function updateWithdrawalStatus(id: string, status: "approved" | "rejected", transactionId?: string): Promise<void> {
   try {
     const docRef = doc(db, "withdrawals", id);
-    await withTimeout(updateDoc(docRef, { status }));
+    const updateData: any = { status };
+    if (transactionId !== undefined) {
+      updateData.transactionId = transactionId;
+    }
+    await withTimeout(updateDoc(docRef, updateData));
   } catch (error) {
     console.warn("Firestore withdrawal status update error, using fallback:", error);
     const withdraws = getFallbackWithdrawals();
     const index = withdraws.findIndex(w => w.id === id);
     if (index !== -1) {
       withdraws[index].status = status;
+      if (transactionId !== undefined) {
+        withdraws[index].transactionId = transactionId;
+      }
       saveFallbackWithdrawals(withdraws);
     }
   }

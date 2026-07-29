@@ -260,6 +260,11 @@ export default function App() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawMsg, setWithdrawMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  // Admin Withdrawal Approval Modal States
+  const [approvingWithdrawal, setApprovingWithdrawal] = useState<Withdrawal | null>(null);
+  const [withdrawalTrxId, setWithdrawalTrxId] = useState('');
+  const [isSubmittingWithdrawApproval, setIsSubmittingWithdrawApproval] = useState(false);
+
   // Telegram Chat ID Finder states
   const [findingChatId, setFindingChatId] = useState(false);
   const [chatIdMessage, setChatIdMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -918,8 +923,8 @@ export default function App() {
   };
 
   // Admin: Update Single Withdrawal Request
-  const handleApproveRejectWithdraw = async (id: string, newStatus: 'approved' | 'rejected') => {
-    await updateWithdrawalStatus(id, newStatus);
+  const handleApproveRejectWithdraw = async (id: string, newStatus: 'approved' | 'rejected', transactionId?: string) => {
+    await updateWithdrawalStatus(id, newStatus, transactionId);
     
     // Notify user via Telegram
     const w = withdrawals.find(w => w.id === id);
@@ -932,7 +937,12 @@ export default function App() {
             targetWalletNumber: w.submittedBy,
             telegramChatId: w.telegramChatId,
             type: newStatus === 'approved' ? 'withdraw_approved' : 'withdraw_rejected',
-            details: { amount: w.amount, method: w.method, number: w.number }
+            details: { 
+              amount: w.amount, 
+              method: w.method, 
+              number: w.number,
+              transactionId: transactionId !== undefined ? transactionId : (w.transactionId || "")
+            }
           })
         });
         const data = await res.json();
@@ -949,7 +959,25 @@ export default function App() {
       }
     }
 
-    setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: newStatus } : w));
+    setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: newStatus, transactionId: transactionId !== undefined ? transactionId : w.transactionId } : w));
+  };
+
+  const openApproveWithdrawModal = (w: Withdrawal) => {
+    setApprovingWithdrawal(w);
+    setWithdrawalTrxId('');
+  };
+
+  const handleConfirmWithdrawApproval = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!approvingWithdrawal || !approvingWithdrawal.id) return;
+    setIsSubmittingWithdrawApproval(true);
+    try {
+      await handleApproveRejectWithdraw(approvingWithdrawal.id, 'approved', withdrawalTrxId.trim());
+    } finally {
+      setIsSubmittingWithdrawApproval(false);
+      setApprovingWithdrawal(null);
+      setWithdrawalTrxId('');
+    }
   };
 
   // Admin: Save App Settings
@@ -1402,6 +1430,7 @@ export default function App() {
               withdrawals={withdrawals}
               fbSubTab={fbSubTab}
               setFbSubTab={setFbSubTab}
+              calculateUserBalance={calculateUserBalance}
             />
           )}
 
@@ -1440,6 +1469,7 @@ export default function App() {
               withdrawals={withdrawals}
               igSubTab={igSubTab}
               setIgSubTab={setIgSubTab}
+              calculateUserBalance={calculateUserBalance}
             />
           )}
 
@@ -1447,9 +1477,9 @@ export default function App() {
           {activeTab === 'admin_withdrawals' && (
             <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                <h3 className="text-lg font-bold text-white">উত্তোলন অনুরোধ ও পেমেন্ট (Payouts Manager)</h3>
+                <h3 className="text-lg font-bold text-white">উত্তোলনের অনুরোধ ও পেমেন্ট (Payouts Manager)</h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  ইউজারদের বিকাশ, নগদ ও রকেট পেমেন্ট উত্তোলন অনুরোধ এখানে থেকে অনুমোদন করুন।
+                  ইউজারদের বিকাশ, নগদ ও রকেট পেমেন্ট উত্তোলন অনুরোধ ট্রানজেকশন নাম্বার দিয়ে অনুমোদন করুন।
                 </p>
               </div>
 
@@ -1483,7 +1513,14 @@ export default function App() {
                                 'bg-sky-600/10 text-sky-500 border border-sky-500/20'
                               }`}>{w.method}</span>
                             </td>
-                            <td className="py-4 px-4 font-mono text-xs text-slate-300">{w.number}</td>
+                            <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                              <div>{w.number}</div>
+                              {w.transactionId && (
+                                <div className="text-[10px] text-emerald-400 font-sans font-bold mt-1 inline-block bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                                  TrxID: {w.transactionId}
+                                </div>
+                              )}
+                            </td>
                             <td className="py-4 px-4 text-white font-extrabold text-xs">৳{w.amount} Taka</td>
                             <td className="py-4 px-4 text-slate-500 text-[10px]">{new Date(w.createdAt).toLocaleString()}</td>
                             <td className="py-4 px-4 text-center">
@@ -1499,14 +1536,14 @@ export default function App() {
                               {w.status === 'pending' ? (
                                 <div className="flex gap-1.5 justify-end">
                                   <button 
-                                    onClick={() => handleApproveRejectWithdraw(w.id || '', 'approved')}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-lg transition-colors animate-pulse"
+                                    onClick={() => openApproveWithdrawModal(w)}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-lg transition-colors animate-pulse cursor-pointer flex items-center gap-1"
                                   >
                                     Approve
                                   </button>
                                   <button 
                                     onClick={() => handleApproveRejectWithdraw(w.id || '', 'rejected')}
-                                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] rounded-lg transition-colors"
+                                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
                                   >
                                     Reject
                                   </button>
@@ -1522,6 +1559,86 @@ export default function App() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* WITHDRAWAL APPROVAL TRX ID MODAL */}
+          {approvingWithdrawal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5"
+              >
+                <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-white">উইথড্র পেমেন্ট অনুমোদন করুন</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">ট্রানজেকশন আইডি যোগ করে এপ্রুভ করুন</p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setApprovingWithdrawal(null)}
+                    className="text-slate-400 hover:text-white text-lg font-bold p-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="bg-slate-950/60 rounded-xl p-4 border border-slate-800/80 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">ওয়ার্কার / নম্বর:</span>
+                    <span className="text-white font-bold">{approvingWithdrawal.submittedBy}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">পেমেন্ট মেথড:</span>
+                    <span className="text-pink-400 font-bold">{approvingWithdrawal.method}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">অ্যাকাউন্ট নাম্বার:</span>
+                    <span className="text-white font-mono font-bold">{approvingWithdrawal.number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">উইথড্র পরিমাণ:</span>
+                    <span className="text-emerald-400 font-extrabold text-sm">৳{approvingWithdrawal.amount} Taka</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleConfirmWithdrawApproval} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      ট্রানজেকশন নাম্বার / TrxID (ঐচ্ছিক):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="যেমন: 9J3K8L2M..."
+                      value={withdrawalTrxId}
+                      onChange={(e) => setWithdrawalTrxId(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-3 text-white text-sm focus:outline-none font-mono"
+                      autoFocus
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      এই ট্রানজেকশন আইডি সহ ইউজারের টেলিগ্রামে একটি কনফার্মেশন মেসেজ চলে যাবে।
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setApprovingWithdrawal(null)}
+                      className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                    >
+                      বাতিল করুন
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingWithdrawApproval}
+                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      {isSubmittingWithdrawApproval ? 'প্রসেসিং...' : 'এপ্রুভ করুন & মেসেজ পাঠান'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
             </div>
           )}
 

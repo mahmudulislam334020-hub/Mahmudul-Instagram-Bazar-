@@ -305,10 +305,14 @@ app.use((req, res, next) => {
                itemsListText + `\n` +
                `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিগুলো বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
       } else if (type === "withdraw_approved") {
+        const trxId = details?.transactionId || details?.trxId || "";
+        const trxLine = trxId ? `🆔 <b>ট্রানজেকশন আইডি (TrxID):</b> <code>${trxId}</code>\n` : "";
         text = `💸 <b>আপনার টাকা উত্তোলনের অনুরোধটি সফলভাবে পেইড হয়েছে! (Withdraw Approved)</b>\n\n` +
+               `🏦 <b>পেমেন্ট মাধ্যম:</b> <b>${details.method}</b>\n` +
+               `📱 <b>অ্যাকাউন্ট:</b> <code>${details.number}</code>\n` +
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +
-               `🏦 <b>ওয়ালেট:</b> <b>${details.method}</b> (${details.number})\n\n` +
-               `🎉 আপনার মোবাইল ব্যাংকিং অ্যাকাউন্টে টাকা পাঠিয়ে দেওয়া হয়েছে। আমাদের সাথে কাজ করার জন্য ধন্যবাদ!`;
+               trxLine + `\n` +
+               `🎉 আপনার মোবাইল ব্যাংকিং অ্যাকাউন্টে টাকা পাঠিয়ে দেওয়া হয়েছে। আমাদের সাথে কাজ করার জন্য ধন্যবাদ! ❤️`;
       } else if (type === "withdraw_rejected") {
         text = `❌ <b>আপনার টাকা উত্তোলনের অনুরোধটি বাতিল করা হয়েছে! (Withdraw Rejected)</b>\n\n` +
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +

@@ -43,6 +43,7 @@ import {
   clearAllWithdrawals,
   clearAllUserProfiles,
   updateSubmissionSubmittedBy,
+  fixAndRestoreUserIds,
   Submission,
   Withdrawal,
   AppSettings,
@@ -345,6 +346,9 @@ export default function App() {
   const loadAllData = async () => {
     setLoading(true);
     try {
+      // Run self-healing user ID restoration
+      await fixAndRestoreUserIds();
+
       const fetchedSettings = await getSettings();
       setAppSettings(fetchedSettings);
 
@@ -1127,6 +1131,41 @@ export default function App() {
     return Math.max(0, totalEarned - withdrawnAmount);
   };
 
+  // Combined totals across all users
+  const totalUsersCombinedBalance = useMemo(() => {
+    const allUsernames = new Set<string>();
+    allProfiles.forEach(p => { if (p.walletNumber) allUsernames.add(p.walletNumber); });
+    submissions.forEach(s => { if (s.submittedBy) allUsernames.add(s.submittedBy); });
+    withdrawals.forEach(w => { if (w.submittedBy) allUsernames.add(w.submittedBy); });
+
+    let total = 0;
+    allUsernames.forEach(username => {
+      total += calculateUserBalance(username);
+    });
+
+    return total;
+  }, [allProfiles, submissions, withdrawals, settings]);
+
+  const totalPendingWithdrawalAmount = useMemo(() => {
+    return withdrawals
+      .filter(w => w.status === 'pending')
+      .reduce((sum, w) => sum + w.amount, 0);
+  }, [withdrawals]);
+
+  const totalApprovedPayoutsAmount = useMemo(() => {
+    return withdrawals
+      .filter(w => w.status === 'approved')
+      .reduce((sum, w) => sum + w.amount, 0);
+  }, [withdrawals]);
+
+  const totalUniqueUsersCount = useMemo(() => {
+    const allUsernames = new Set<string>();
+    allProfiles.forEach(p => { if (p.walletNumber) allUsernames.add(p.walletNumber); });
+    submissions.forEach(s => { if (s.submittedBy) allUsernames.add(s.submittedBy); });
+    withdrawals.forEach(w => { if (w.submittedBy) allUsernames.add(w.submittedBy); });
+    return allUsernames.size;
+  }, [allProfiles, submissions, withdrawals]);
+
   const calculateUserPendingEarned = (name: string) => {
     const userPendingSubs = submissions.filter(s => s.submittedBy === name && s.status === 'pending');
     return userPendingSubs.reduce((sum, s) => {
@@ -1476,11 +1515,80 @@ export default function App() {
           {/* ADMIN: WITHDRAWALS APPROVAL TAB */}
           {activeTab === 'admin_withdrawals' && (
             <div className="space-y-6">
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                <h3 className="text-lg font-bold text-white">উত্তোলনের অনুরোধ ও পেমেন্ট (Payouts Manager)</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  ইউজারদের বিকাশ, নগদ ও রকেট পেমেন্ট উত্তোলন অনুরোধ ট্রানজেকশন নাম্বার দিয়ে অনুমোদন করুন।
-                </p>
+              {/* Header Banner */}
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <DollarSign className="text-emerald-400" size={20} />
+                    <span>উত্তোলনের অনুরোধ ও পেমেন্ট (Payouts Manager)</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    ইউজারদের বিকাশ, নগদ ও রকেট পেমেন্ট উত্তোলন অনুরোধ ট্রানজেকশন নাম্বার দিয়ে অনুমোদন করুন।
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-start md:self-auto bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-xl">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span>লাইভ রিয়েল-টাইম ডাটা</span>
+                </div>
+              </div>
+
+              {/* Combined Balance & Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Combined Total Users Balance */}
+                <div className="bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 p-5 rounded-2xl relative overflow-hidden shadow-lg shadow-emerald-950/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-10 text-emerald-400 pointer-events-none">
+                    <Wallet size={80} />
+                  </div>
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <Wallet size={16} />
+                    <span>সব ইউজারের মোট জমা ব্যালেন্স</span>
+                  </div>
+                  <div className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+                    ৳{totalUsersCombinedBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-semibold text-emerald-400">Taka</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5">
+                    <Users size={12} className="text-slate-400" />
+                    <span>মোট <strong>{totalUniqueUsersCount}</strong> জন ইউজারের ওয়ালেটে জমে থাকা টাকা</span>
+                  </p>
+                </div>
+
+                {/* 2. Pending Withdrawals Total */}
+                <div className="bg-slate-900 border border-amber-500/30 p-5 rounded-2xl relative overflow-hidden shadow-lg">
+                  <div className="flex items-center justify-between text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <div className="flex items-center gap-2">
+                      <DollarSign size={16} />
+                      <span>পেন্ডিং উত্তোলনের অনুরোধ</span>
+                    </div>
+                    <span className="text-[10px] bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full font-bold">
+                      {withdrawals.filter(w => w.status === 'pending').length} টি
+                    </span>
+                  </div>
+                  <div className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+                    ৳{totalPendingWithdrawalAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-semibold text-amber-400">Taka</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    বর্তমানে অনুমোদনের অপেক্ষায় থাকা পেমেন্ট অনুরোধ
+                  </p>
+                </div>
+
+                {/* 3. Total Approved Payouts */}
+                <div className="bg-slate-900 border border-sky-500/30 p-5 rounded-2xl relative overflow-hidden shadow-lg">
+                  <div className="flex items-center justify-between text-sky-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle size={16} />
+                      <span>মোট পরিশোধিত পেমেন্ট</span>
+                    </div>
+                    <span className="text-[10px] bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-full font-bold">
+                      {withdrawals.filter(w => w.status === 'approved').length} টি
+                    </span>
+                  </div>
+                  <div className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+                    ৳{totalApprovedPayoutsAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-semibold text-sky-400">Taka</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    ইউজারদের সফলভাবে পেইড করা মোট পেমেন্ট
+                  </p>
+                </div>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">

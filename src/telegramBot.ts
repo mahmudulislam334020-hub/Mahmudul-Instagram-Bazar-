@@ -1474,22 +1474,33 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     state.step = "awaiting_withdraw_amount";
     userStates.set(chatId, state);
 
-    // Update user profile in Firestore so their Telegram Chat ID is linked to this wallet number
+    // Update user payout details in Firestore without overwriting existing walletNumber / user ID
     try {
       const profilesRef = collection(db, "profiles");
       const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
       const qSnap = await getDocs(q);
       if (!qSnap.empty) {
-        await updateDoc(qSnap.docs[0].ref, {
-          walletNumber: walletNum,
+        const pDocData = qSnap.docs[0].data();
+        const existingWalletNumber = pDocData.walletNumber;
+
+        const updateData: any = {
+          payoutNumber: walletNum,
           walletType: state.withdrawData?.method || "bKash"
-        });
-        profile.walletNumber = walletNum;
+        };
+
+        // Only set walletNumber if the user didn't have one set before
+        if (!existingWalletNumber || existingWalletNumber.trim() === "") {
+          updateData.walletNumber = walletNum;
+          profile.walletNumber = walletNum;
+        }
+
+        await updateDoc(qSnap.docs[0].ref, updateData);
+        profile.payoutNumber = walletNum;
         profile.walletType = state.withdrawData?.method || "bKash";
-        console.log(`Linked profile walletNumber to ${walletNum} for chatId ${chatId}`);
+        console.log(`Updated payout info for chatId ${chatId}. Preserved walletNumber: ${profile.walletNumber || walletNum}`);
       }
     } catch (err) {
-      console.error("Error linking wallet number to profile:", err);
+      console.error("Error updating profile payout info:", err);
     }
 
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
@@ -1568,13 +1579,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     // Save withdrawal
     const method = state.withdrawData?.method || 'bKash';
     const num = state.withdrawData?.number || '';
+    const userIdOrWallet = profile.walletNumber || String(chatId);
     const newW = {
       method: method,
       number: num,
       amount: amount,
       status: 'pending',
       createdAt: new Date().toISOString(),
-      submittedBy: num,
+      submittedBy: userIdOrWallet,
       telegramChatId: String(chatId)
     };
 

@@ -68,6 +68,7 @@ export interface UserProfile {
   telegramChatId?: string;
   bonusBalance?: number;
   accumulatedApprovedEarnings?: number;
+  payoutNumber?: string;
 }
 
 // Memory & LocalStorage Fallback database to ensure 100% uptime and testability
@@ -482,5 +483,105 @@ export async function clearAllUserProfiles(): Promise<void> {
     console.warn("Firestore clear profiles error, using fallback:", error);
   }
   localStorage.removeItem("fallback_profiles");
+}
+
+export async function fixAndRestoreUserIds(): Promise<{ fixedProfiles: number, fixedSubmissions: number, fixedWithdrawals: number }> {
+  let fixedProfiles = 0;
+  let fixedSubmissions = 0;
+  let fixedWithdrawals = 0;
+
+  try {
+    const profilesSnap = await getDocs(collection(db, "profiles"));
+    const phoneRegex = /^01[3-9]\d{8}$/;
+
+    // Map from phone numbers to correct user ID (telegramChatId)
+    const phoneToUserIdMap: Record<string, string> = {};
+
+    for (const docSnap of profilesSnap.docs) {
+      const pData = docSnap.data();
+      const currentWallet = pData.walletNumber || "";
+      const chatId = pData.telegramChatId || "";
+
+      // Check if walletNumber is an 11-digit phone number
+      if (phoneRegex.test(currentWallet) && chatId) {
+        const correctUserId = chatId;
+        phoneToUserIdMap[currentWallet] = correctUserId;
+
+        await updateDoc(docSnap.ref, {
+          walletNumber: correctUserId,
+          payoutNumber: currentWallet
+        });
+        fixedProfiles++;
+      } else if (chatId && currentWallet) {
+        if (pData.payoutNumber && phoneRegex.test(pData.payoutNumber)) {
+          phoneToUserIdMap[pData.payoutNumber] = currentWallet;
+        }
+      }
+    }
+
+    // Fix Submissions where submittedBy is a phone number
+    const subsSnap = await getDocs(collection(db, "submissions"));
+    for (const docSnap of subsSnap.docs) {
+      const sData = docSnap.data();
+      const submittedBy = sData.submittedBy || "";
+      if (phoneToUserIdMap[submittedBy]) {
+        const correctUserId = phoneToUserIdMap[submittedBy];
+        await updateDoc(docSnap.ref, { submittedBy: correctUserId });
+        fixedSubmissions++;
+      }
+    }
+
+    // Fix Withdrawals where submittedBy is a phone number
+    const withdrawsSnap = await getDocs(collection(db, "withdrawals"));
+    for (const docSnap of withdrawsSnap.docs) {
+      const wData = docSnap.data();
+      const submittedBy = wData.submittedBy || "";
+      const wChatId = wData.telegramChatId || "";
+
+      if (phoneToUserIdMap[submittedBy]) {
+        const correctUserId = phoneToUserIdMap[submittedBy];
+        await updateDoc(docSnap.ref, { submittedBy: correctUserId });
+        fixedWithdrawals++;
+      } else if (phoneRegex.test(submittedBy) && wChatId) {
+        await updateDoc(docSnap.ref, { submittedBy: wChatId });
+        fixedWithdrawals++;
+      }
+    }
+
+    // Fix Fallback data if local
+    const fallbackProfiles = getFallbackProfiles();
+    fallbackProfiles.forEach(p => {
+      if (phoneRegex.test(p.walletNumber) && p.telegramChatId) {
+        phoneToUserIdMap[p.walletNumber] = p.telegramChatId;
+        p.payoutNumber = p.walletNumber;
+        p.walletNumber = p.telegramChatId;
+      }
+    });
+    localStorage.setItem("fallback_profiles", JSON.stringify(fallbackProfiles));
+
+    const fallbackSubs = getFallbackSubmissions();
+    fallbackSubs.forEach(s => {
+      if (phoneToUserIdMap[s.submittedBy]) {
+        s.submittedBy = phoneToUserIdMap[s.submittedBy];
+      }
+    });
+    saveFallbackSubmissions(fallbackSubs);
+
+    const fallbackWs = getFallbackWithdrawals();
+    fallbackWs.forEach(w => {
+      if (phoneToUserIdMap[w.submittedBy]) {
+        w.submittedBy = phoneToUserIdMap[w.submittedBy];
+      } else if (phoneRegex.test(w.submittedBy) && w.telegramChatId) {
+        w.submittedBy = w.telegramChatId;
+      }
+    });
+    saveFallbackWithdrawals(fallbackWs);
+
+    console.log(`[ID Restoration] Fixed: ${fixedProfiles} profiles, ${fixedSubmissions} submissions, ${fixedWithdrawals} withdrawals`);
+  } catch (err) {
+    console.error("Error in fixAndRestoreUserIds:", err);
+  }
+
+  return { fixedProfiles, fixedSubmissions, fixedWithdrawals };
 }
 

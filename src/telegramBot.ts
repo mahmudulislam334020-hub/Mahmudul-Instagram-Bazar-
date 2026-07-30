@@ -345,19 +345,6 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
 }
 
 async function showWorkMenu(bot: TelegramBot, chatId: number) {
-  let instaRate = 45;
-  let fbRate = 45;
-  try {
-    const settingsSnap = await getDoc(doc(db, "settings", "global"));
-    if (settingsSnap.exists()) {
-      const sData = settingsSnap.data();
-      instaRate = sData.ratePerId !== undefined ? sData.ratePerId : 45;
-      fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : instaRate;
-    }
-  } catch (e) {
-    console.warn("Error fetching settings for showWorkMenu:", e);
-  }
-
   const text = `💼 <b>আপনার পছন্দের কাজটি নির্বাচন করুন:</b>\n\n` +
                `👇 নিচে থেকে যেকোনো একটি কাজ শুরু করুন:`;
   
@@ -366,8 +353,8 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
     reply_markup: {
       keyboard: [
         [
-          { text: `📸 ইনস্টাগ্রাম টু-এফএ কাজ (৳${instaRate})` },
-          { text: `👥 ফেসবুকের কাজ (৳${fbRate})` }
+          { text: "📸 ইনস্টাগ্রামের কাজ" },
+          { text: "👥 ফেসবুকের কাজ" }
         ],
         [
           { text: "🔙 মেইন মেনু" }
@@ -722,7 +709,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("ফেসবুকের কাজ")) {
+    if (text.includes("ফেসবুকের কাজ") && !text.includes("Cookie")) {
       let isWorkActive = true;
       let fbRate = 45;
       try {
@@ -759,7 +746,44 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("number/anymail Facebook Cookie")) {
+    if (text.includes("ইনস্টাগ্রামের কাজ") && !text.includes("টু-এফএ")) {
+      let isWorkActive = true;
+      let instaRate = 45;
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "global"));
+        if (settingsSnap.exists()) {
+          const sData = settingsSnap.data();
+          if (sData.instagramWorkActive === false) {
+            isWorkActive = false;
+          }
+          instaRate = sData.ratePerId !== undefined ? sData.ratePerId : 45;
+        }
+      } catch (e) {
+        console.warn("Error loading settings in bot command:", e);
+      }
+
+      if (!isWorkActive) {
+        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML"
+        });
+        return;
+      }
+
+      await bot.sendMessage(chatId, `📸 <b>ইনস্টাগ্রামের কাজ শুরু করতে নিচে ক্লিক করুন:</b>`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [{ text: `📸 ইনস্টাগ্রাম টু-এফএ (৳${instaRate})` }],
+            [{ text: "🔙 মেইন মেনু" }]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false
+        }
+      });
+      return;
+    }
+
+    if (text.includes("Facebook Cookie")) {
       let isWorkActive = true;
       let password = "";
       try {
@@ -819,7 +843,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("ইনস্টাগ্রাম টু-এফএ কাজ")) {
+    if (text.includes("ইনস্টাগ্রাম টু-এফএ")) {
       await cleanUpInstagramMessages(bot, chatId, state);
 
       let customPrefix = "";

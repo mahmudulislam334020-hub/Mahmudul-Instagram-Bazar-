@@ -345,6 +345,19 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
 }
 
 async function showWorkMenu(bot: TelegramBot, chatId: number) {
+  let instaRate = 45;
+  let fbRate = 45;
+  try {
+    const settingsSnap = await getDoc(doc(db, "settings", "global"));
+    if (settingsSnap.exists()) {
+      const sData = settingsSnap.data();
+      instaRate = sData.ratePerId !== undefined ? sData.ratePerId : 45;
+      fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : instaRate;
+    }
+  } catch (e) {
+    console.warn("Error fetching settings for showWorkMenu:", e);
+  }
+
   const text = `💼 <b>আপনার পছন্দের কাজটি নির্বাচন করুন:</b>\n\n` +
                `👇 নিচে থেকে যেকোনো একটি কাজ শুরু করুন:`;
   
@@ -353,8 +366,8 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
     reply_markup: {
       keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রাম টু-এফএ কাজ" },
-          { text: "👥 ফেসবুকের কাজ" }
+          { text: `📸 ইনস্টাগ্রাম টু-এফএ কাজ (৳${instaRate})` },
+          { text: `👥 ফেসবুকের কাজ (৳${fbRate})` }
         ],
         [
           { text: "🔙 মেইন মেনু" }
@@ -709,8 +722,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text === "👥 ফেসবুকের কাজ" || text === "ফেসবুকের কাজ") {
+    if (text.includes("ফেসবুকের কাজ")) {
       let isWorkActive = true;
+      let fbRate = 45;
       try {
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
@@ -718,6 +732,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           if (sData.facebookWorkActive === false) {
             isWorkActive = false;
           }
+          fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : (sData.ratePerId || 45);
         }
       } catch (e) {
         console.warn("Error loading settings in bot command:", e);
@@ -734,7 +749,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "number/anymail Facebook Cookie" }],
+            [{ text: `number/anymail Facebook Cookie (৳${fbRate})` }],
             [{ text: "🔙 মেইন মেনু" }]
           ],
           resize_keyboard: true,
@@ -744,7 +759,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text === "number/anymail Facebook Cookie") {
+    if (text.includes("number/anymail Facebook Cookie")) {
       let isWorkActive = true;
       let password = "";
       try {
@@ -804,7 +819,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text === "📸 ইনস্টাগ্রাম টু-এফএ কাজ") {
+    if (text.includes("ইনস্টাগ্রাম টু-এফএ কাজ")) {
       await cleanUpInstagramMessages(bot, chatId, state);
 
       let customPrefix = "";

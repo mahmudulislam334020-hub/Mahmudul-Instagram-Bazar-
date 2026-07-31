@@ -49,6 +49,7 @@ export interface AdminInstagramProps {
   igSubTab: 'submissions' | 'summary' | 'settings' | 'clear';
   setIgSubTab: React.Dispatch<React.SetStateAction<'submissions' | 'summary' | 'settings' | 'clear'>>;
   calculateUserBalance?: (workerName: string) => number;
+  handleAdjustUserBalance?: (workerName: string, amount: number) => Promise<void>;
 }
 
 export default function AdminInstagram({
@@ -84,11 +85,14 @@ export default function AdminInstagram({
   withdrawals,
   igSubTab,
   setIgSubTab,
-  calculateUserBalance
+  calculateUserBalance,
+  handleAdjustUserBalance
 }: AdminInstagramProps) {
   const [passwordFilter, setPasswordFilter] = React.useState('');
   const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
   const [passwordActionResult, setPasswordActionResult] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [selectedWorkerForBalance, setSelectedWorkerForBalance] = React.useState<string | null>(null);
+  const [adjustAmount, setAdjustAmount] = React.useState<string>('');
 
   // Extract unique passwords and count how many submissions have each password
   const passwordCounts = React.useMemo(() => {
@@ -660,6 +664,17 @@ export default function AdminInstagram({
                                 <span>ব্যালেন্স: ৳{calculateUserBalance(group.worker)} Taka</span>
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedWorkerForBalance(group.worker);
+                                setAdjustAmount('');
+                              }}
+                              className="text-[10.5px] font-bold text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              💰 ব্যালেন্স বাড়ান / কমান
+                            </button>
                           </p>
                         </div>
                       </div>
@@ -940,6 +955,85 @@ export default function AdminInstagram({
                 className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/20 text-white disabled:text-rose-800/60 font-bold text-xs rounded-lg transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed border border-rose-600/30"
               >
                 {isClearingProfiles ? 'মুছে ফেলা হচ্ছে...' : 'সব ইউজার প্রোফাইল মুছুন ❌'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Adjust User Balance */}
+      {selectedWorkerForBalance && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Wallet className="text-emerald-400" size={18} />
+                <span>ইউজার ব্যালেন্স এডজাস্ট (Modify Balance)</span>
+              </h3>
+              <button 
+                onClick={() => setSelectedWorkerForBalance(null)}
+                className="text-slate-400 hover:text-white text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between text-slate-300">
+                <span>ইউজার (Worker):</span>
+                <span className="font-bold text-white">{selectedWorkerForBalance}</span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>বর্তমান ব্যালেন্স:</span>
+                <span className="font-extrabold text-emerald-400">৳{calculateUserBalance ? calculateUserBalance(selectedWorkerForBalance) : 0} Taka</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 block mb-1.5">
+                কত টাকা পরিবর্তন করতে চান? (যেমন: +50 বা -50)
+              </label>
+              <div className="flex gap-2">
+                <input 
+                  type="number"
+                  placeholder="যেমন: 50 বা -50"
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 px-3.5 py-2.5 rounded-xl text-white text-xs outline-none focus:border-indigo-500 font-mono"
+                  autoFocus
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1.5">
+                💡 পজিটিভ এমাউন্ট (যেমন <code>50</code>) লিখলে ইউজারের ব্যালেন্স বাড়বে, আর নেগেটিভ এমাউন্ট (যেমন <code>-50</code>) লিখলে ইউজারের ব্যালেন্স কমবে।
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const amt = parseFloat(adjustAmount);
+                  if (isNaN(amt) || amt === 0) {
+                    alert("অনুগ্রহ করে একটি সঠিক টাকার পরিমাণ লিখুন!");
+                    return;
+                  }
+                  if (handleAdjustUserBalance) {
+                    handleAdjustUserBalance(selectedWorkerForBalance, amt);
+                    setSelectedWorkerForBalance(null);
+                    setAdjustAmount('');
+                  }
+                }}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow transition-all cursor-pointer"
+              >
+                নিশ্চিত করুন (Save Balance)
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedWorkerForBalance(null);
+                  setAdjustAmount('');
+                }}
+                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all cursor-pointer"
+              >
+                বাতিল
               </button>
             </div>
           </div>

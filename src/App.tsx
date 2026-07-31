@@ -44,6 +44,7 @@ import {
   clearAllUserProfiles,
   updateSubmissionSubmittedBy,
   fixAndRestoreUserIds,
+  adjustUserBonusBalance,
   Submission,
   Withdrawal,
   AppSettings,
@@ -1102,10 +1103,24 @@ export default function App() {
 
   // Helper calculation functions
   const calculateUserTotalEarned = (name: string) => {
-    const profile = allProfiles.find(p => p.walletNumber === name);
-    const extraEarnings = (profile?.accumulatedApprovedEarnings || 0) + (profile?.bonusBalance || 0);
+    const matchingProfile = allProfiles.find(p => 
+      p.walletNumber === name || p.telegramChatId === name || p.payoutNumber === name
+    );
 
-    const userApprovedSubs = submissions.filter(s => s.submittedBy === name && s.status === 'approved');
+    const relatedIds = new Set<string>([name]);
+    if (matchingProfile) {
+      if (matchingProfile.walletNumber) relatedIds.add(matchingProfile.walletNumber);
+      if (matchingProfile.telegramChatId) relatedIds.add(matchingProfile.telegramChatId);
+      if (matchingProfile.payoutNumber) relatedIds.add(matchingProfile.payoutNumber);
+    }
+
+    const extraEarnings = (matchingProfile?.accumulatedApprovedEarnings || 0) + (matchingProfile?.bonusBalance || 0);
+
+    const userApprovedSubs = submissions.filter(s => 
+      (relatedIds.has(s.submittedBy) || ((s as any).telegramChatId && relatedIds.has((s as any).telegramChatId))) && 
+      s.status === 'approved'
+    );
+
     const activeEarned = userApprovedSubs.reduce((sum, s) => {
       if (s.rate !== undefined) {
         return sum + s.rate;
@@ -1123,12 +1138,57 @@ export default function App() {
   const calculateUserBalance = (name: string) => {
     const totalEarned = calculateUserTotalEarned(name);
     
+    const matchingProfile = allProfiles.find(p => 
+      p.walletNumber === name || p.telegramChatId === name || p.payoutNumber === name
+    );
+
+    const relatedIds = new Set<string>([name]);
+    if (matchingProfile) {
+      if (matchingProfile.walletNumber) relatedIds.add(matchingProfile.walletNumber);
+      if (matchingProfile.telegramChatId) relatedIds.add(matchingProfile.telegramChatId);
+      if (matchingProfile.payoutNumber) relatedIds.add(matchingProfile.payoutNumber);
+    }
+
     // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
     const withdrawnAmount = withdrawals
-      .filter(w => w.submittedBy === name && (w.status === 'approved' || w.status === 'pending'))
+      .filter(w => (relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))) && (w.status === 'approved' || w.status === 'pending'))
       .reduce((sum, current) => sum + current.amount, 0);
 
     return Math.max(0, totalEarned - withdrawnAmount);
+  };
+
+  const handleAdjustUserBalance = async (workerName: string, amount: number) => {
+    if (!workerName || isNaN(amount) || amount === 0) return;
+    try {
+      await adjustUserBonusBalance(workerName, amount);
+      showAdminToast(`💰 ইউজার ${workerName} এর ব্যালেন্স ৳${Math.abs(amount)} ${amount > 0 ? 'বাড়ানো' : 'কমানো'} হয়েছে!`, 'success');
+      
+      const matchingProfile = allProfiles.find(p => p.walletNumber === workerName || p.telegramChatId === workerName || p.payoutNumber === workerName);
+      const targetWallet = matchingProfile?.walletNumber || workerName;
+      
+      try {
+        await fetch("/api/telegram-direct-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetWalletNumber: targetWallet,
+            telegramChatId: matchingProfile?.telegramChatId,
+            type: 'balance_adjusted',
+            details: {
+              amount: amount,
+              newBalance: calculateUserBalance(workerName) + amount
+            }
+          })
+        });
+      } catch (notifyErr) {
+        console.warn("Failed to send balance adjustment notification:", notifyErr);
+      }
+
+      await loadAllData();
+    } catch (err) {
+      console.error("Error adjusting balance:", err);
+      showAdminToast("❌ ব্যালেন্স পরিবর্তন করতে সমস্যা হয়েছে।", "error");
+    }
   };
 
   // Combined totals across all users
@@ -1470,6 +1530,7 @@ export default function App() {
               fbSubTab={fbSubTab}
               setFbSubTab={setFbSubTab}
               calculateUserBalance={calculateUserBalance}
+              handleAdjustUserBalance={handleAdjustUserBalance}
             />
           )}
 
@@ -1509,6 +1570,7 @@ export default function App() {
               igSubTab={igSubTab}
               setIgSubTab={setIgSubTab}
               calculateUserBalance={calculateUserBalance}
+              handleAdjustUserBalance={handleAdjustUserBalance}
             />
           )}
 

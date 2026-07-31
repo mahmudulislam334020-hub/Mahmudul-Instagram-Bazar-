@@ -585,3 +585,70 @@ export async function fixAndRestoreUserIds(): Promise<{ fixedProfiles: number, f
   return { fixedProfiles, fixedSubmissions, fixedWithdrawals };
 }
 
+export async function adjustUserBonusBalance(workerNameOrId: string, amount: number): Promise<number> {
+  if (!workerNameOrId || amount === 0) return 0;
+  
+  try {
+    const profilesRef = collection(db, "profiles");
+    let targetDocRef: any = doc(db, "profiles", workerNameOrId);
+    let currentDocSnap = await getDoc(targetDocRef);
+    let profileData: any = null;
+
+    if (currentDocSnap.exists()) {
+      profileData = currentDocSnap.data();
+    } else {
+      // Query by walletNumber, telegramChatId, or payoutNumber
+      const q1 = query(profilesRef, where("telegramChatId", "==", String(workerNameOrId)), limit(1));
+      let qSnap = await getDocs(q1);
+      if (qSnap.empty) {
+        const q2 = query(profilesRef, where("walletNumber", "==", String(workerNameOrId)), limit(1));
+        qSnap = await getDocs(q2);
+      }
+      if (qSnap.empty) {
+        const q3 = query(profilesRef, where("payoutNumber", "==", String(workerNameOrId)), limit(1));
+        qSnap = await getDocs(q3);
+      }
+
+      if (!qSnap.empty) {
+        targetDocRef = qSnap.docs[0].ref;
+        profileData = qSnap.docs[0].data();
+      }
+    }
+
+    if (profileData) {
+      const currentBonus = profileData.bonusBalance || 0;
+      const newBonus = currentBonus + amount;
+      await updateDoc(targetDocRef, { bonusBalance: newBonus });
+      return newBonus;
+    } else {
+      // Create new profile if doc doesn't exist yet
+      const newBonus = amount;
+      await setDoc(targetDocRef, {
+        walletNumber: workerNameOrId,
+        walletType: "bKash",
+        createdAt: new Date().toISOString(),
+        bonusBalance: newBonus
+      });
+      return newBonus;
+    }
+  } catch (err) {
+    console.warn("Failed to adjust user bonus balance in Firestore:", err);
+    // Fallback in localStorage
+    const fallbacks = getFallbackProfiles();
+    let p = fallbacks.find(f => f.walletNumber === workerNameOrId || f.telegramChatId === workerNameOrId || f.payoutNumber === workerNameOrId);
+    if (p) {
+      p.bonusBalance = (p.bonusBalance || 0) + amount;
+    } else {
+      p = {
+        walletNumber: workerNameOrId,
+        walletType: "bKash",
+        createdAt: new Date().toISOString(),
+        bonusBalance: amount
+      };
+      fallbacks.push(p);
+    }
+    localStorage.setItem("fallback_profiles", JSON.stringify(fallbacks));
+    return p.bonusBalance || 0;
+  }
+}
+

@@ -318,6 +318,14 @@ app.use((req, res, next) => {
                `💵 <b>পরিমাণ:</b> ৳<b>${details.amount}</b> Taka\n` +
                `🏦 <b>ওয়ালেট:</b> <b>${details.method}</b> (${details.number})\n\n` +
                `⚠️ কোনো ত্রুটির কারণে আপনার উত্তোলন অনুরোধ বাতিল করা হয়েছে। টাকাটি আপনার ওয়ালেট ব্যালেন্সে ফেরত দেওয়া হয়েছে। অনুগ্রহ করে এডমিনের সাথে যোগাযোগ করুন।`;
+      } else if (type === "balance_adjusted") {
+        const amt = details?.amount || 0;
+        const newBal = details?.newBalance !== undefined ? details?.newBalance : 0;
+        const actionText = amt > 0 ? `৳${amt} Taka যোগ (বোনাস/সংশোধন)` : `৳${Math.abs(amt)} Taka কমানো (সংশোধন/এডজাস্ট)`;
+        text = `💰 <b>আপনার অ্যাকাউন্ট ব্যালেন্স আপডেট করা হয়েছে!</b>\n\n` +
+               `🔄 <b>পরিবর্তন:</b> <b>${actionText}</b>\n` +
+               `💵 <b>বর্তমান ব্যালেন্স:</b> ৳<b>${newBal}</b> Taka\n\n` +
+               `ধন্যবাদ আমাদের সাথে থাকার জন্য! ❤️`;
       } else if (type === "bonus_credit" || type === "custom_message") {
         text = details?.message || details?.text || "আপডেট নোটিফিকেশন";
       }

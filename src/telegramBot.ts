@@ -180,40 +180,76 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const submissionsRef = collection(db, "submissions");
   const uniqueSubmissions = new Map<string, any>();
 
-  // Fetch by walletNumber if provided
+  // Fetch user profile first to gather all linked IDs (walletNumber, telegramChatId, payoutNumber)
+  let profileData: any = null;
   if (walletNumber) {
-    const q1 = query(submissionsRef, where("submittedBy", "==", walletNumber));
-    const snap1 = await getDocs(q1);
-    snap1.forEach(docSnap => {
-      uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    });
+    try {
+      const pDoc = await getDoc(doc(db, "profiles", walletNumber));
+      if (pDoc.exists()) profileData = pDoc.data();
+    } catch (e) {}
+  }
+  if (!profileData && telegramChatId) {
+    try {
+      const pQuery = query(collection(db, "profiles"), where("telegramChatId", "==", String(telegramChatId)), limit(1));
+      const pSnap = await getDocs(pQuery);
+      if (!pSnap.empty) profileData = pSnap.docs[0].data();
+    } catch (e) {}
   }
 
-  // Fetch by telegramChatId if provided
-  if (telegramChatId) {
-    const q2 = query(submissionsRef, where("telegramChatId", "==", String(telegramChatId)));
-    const snap2 = await getDocs(q2);
-    snap2.forEach(docSnap => {
-      uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    });
+  const searchIds = new Set<string>();
+  if (walletNumber) searchIds.add(walletNumber);
+  if (telegramChatId) searchIds.add(String(telegramChatId));
+  if (profileData?.walletNumber) searchIds.add(profileData.walletNumber);
+  if (profileData?.telegramChatId) searchIds.add(String(profileData.telegramChatId));
+  if (profileData?.payoutNumber) searchIds.add(profileData.payoutNumber);
+
+  for (const sid of Array.from(searchIds)) {
+    if (!sid) continue;
+    try {
+      const q1 = query(submissionsRef, where("submittedBy", "==", sid));
+      const snap1 = await getDocs(q1);
+      snap1.forEach(docSnap => {
+        uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+      });
+    } catch (e) {}
+
+    try {
+      const q2 = query(submissionsRef, where("telegramChatId", "==", sid));
+      const snap2 = await getDocs(q2);
+      snap2.forEach(docSnap => {
+        uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+      });
+    } catch (e) {}
   }
 
   const userSubmissions = Array.from(uniqueSubmissions.values());
 
   // Self-Healing logic:
-  // If we have both telegramChatId and walletNumber, and some submissions under this telegramChatId 
-  // do not have the current walletNumber set, update them in Firestore.
-  if (telegramChatId && walletNumber) {
-    for (const sub of userSubmissions) {
-      if (sub.telegramChatId === String(telegramChatId) && sub.submittedBy !== walletNumber) {
-        try {
-          console.log(`Self-healing: Updating submission ${sub.id} submittedBy to ${walletNumber}`);
-          const subDocRef = doc(db, "submissions", sub.id);
-          await updateDoc(subDocRef, { submittedBy: walletNumber });
-          sub.submittedBy = walletNumber; // Update in-memory for immediate correct stat calculation
-        } catch (err) {
-          console.error(`Error self-healing submission ${sub.id}:`, err);
-        }
+  // Update submittedBy and telegramChatId on submissions if they don't match the primary identifiers
+  const primaryWallet = walletNumber || profileData?.walletNumber || (telegramChatId ? String(telegramChatId) : "");
+  const primaryChatId = telegramChatId ? String(telegramChatId) : (profileData?.telegramChatId ? String(profileData.telegramChatId) : "");
+
+  for (const sub of userSubmissions) {
+    let needsUpdate = false;
+    const updateObj: any = {};
+
+    if (primaryChatId && sub.telegramChatId !== primaryChatId) {
+      updateObj.telegramChatId = primaryChatId;
+      sub.telegramChatId = primaryChatId;
+      needsUpdate = true;
+    }
+    if (primaryWallet && sub.submittedBy !== primaryWallet && sub.submittedBy !== primaryChatId) {
+      updateObj.submittedBy = primaryWallet;
+      sub.submittedBy = primaryWallet;
+      needsUpdate = true;
+    }
+
+    if (needsUpdate && sub.id) {
+      try {
+        const subDocRef = doc(db, "submissions", sub.id);
+        await updateDoc(subDocRef, updateObj);
+      } catch (err) {
+        console.error(`Error self-healing submission ${sub.id}:`, err);
       }
     }
   }
@@ -224,22 +260,8 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
 
   // Fetch extra preserved earnings & bonus balance from user profile in Firestore
   let extraEarnings = 0;
-  try {
-    let profileData: any = null;
-    if (walletNumber) {
-      const pDoc = await getDoc(doc(db, "profiles", walletNumber));
-      if (pDoc.exists()) profileData = pDoc.data();
-    }
-    if (!profileData && telegramChatId) {
-      const pQuery = query(collection(db, "profiles"), where("telegramChatId", "==", String(telegramChatId)), limit(1));
-      const pSnap = await getDocs(pQuery);
-      if (!pSnap.empty) profileData = pSnap.docs[0].data();
-    }
-    if (profileData) {
-      extraEarnings = (profileData.accumulatedApprovedEarnings || 0) + (profileData.bonusBalance || 0);
-    }
-  } catch (pErr) {
-    console.warn("Failed to fetch user profile for extra earnings:", pErr);
+  if (profileData) {
+    extraEarnings = (profileData.accumulatedApprovedEarnings || 0) + (profileData.bonusBalance || 0);
   }
 
   // Calculate rate based on category
@@ -1097,7 +1119,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (isPending) {
-      await bot.sendMessage(chatId, `❌ <b>এই আইডিটি সঠিক নয়!</b>\n\nএই ইউ আই ডি (UID) টি বর্তমানে প্রিন্টিং/প্রক্রিয়াধীন অবস্থায় রয়েছে। অনুগ্রহ করে সঠিক আইডি পুনরায় প্রদান করুন:`, {
+      await bot.sendMessage(chatId, `❌ <b>এই আইডিটি জমা দেওয়া যাবে না!</b>\n\nএই ইউআইডি (UID) টি প্যানেলে বর্তমানে পেন্ডিং অবস্থায় রয়েছে। এটি দ্বিতীয়বার সাবমিট করা যাবে না।\n\nঅনুগ্রহ করে একটি ভিন্ন ইউআইডি (UID) সাবমিট করুন:`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
@@ -1181,6 +1203,32 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       const fd = state.facebookData;
       if (!fd || !fd.uid || !fd.cookie) {
         await bot.sendMessage(chatId, "❌ তথ্য পাওয়া যায়নি। অনুগ্রহ করে নতুন করে কাজ শুরু করুন।");
+        state.step = "main_menu";
+        state.facebookData = undefined;
+        userStates.set(chatId, state);
+        await showMainMenu(bot, chatId, profile);
+        return;
+      }
+
+      // Check if UID is already pending in database before submitting
+      let isPending = false;
+      try {
+        const submissionsRef = collection(db, "submissions");
+        const qUid = query(submissionsRef, where("uid", "==", fd.uid), limit(10));
+        const snapUid = await getDocs(qUid);
+        snapUid.forEach(docSnap => {
+          if (docSnap.data().status === "pending") {
+            isPending = true;
+          }
+        });
+      } catch (err) {
+        console.error("Error checking duplicate pending FB UID on complete:", err);
+      }
+
+      if (isPending) {
+        await bot.sendMessage(chatId, `❌ <b>এই ইউআইডি (UID) টি বর্তমানে পেন্ডিং রয়েছে!</b>\n\nএই আইডিটি প্যানেলে ইতিমধ্যে পেন্ডিং অবস্থায় জমা রয়েছে। তাই এটি পুনরায় সাবমিট করা যাবে না। অনুগ্রহ করে অন্য একটি ভিন্ন ইউআইডি সাবমিট করুন।`, {
+          parse_mode: "HTML"
+        });
         state.step = "main_menu";
         state.facebookData = undefined;
         userStates.set(chatId, state);
@@ -1273,6 +1321,33 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       if (!username || !password || !twoFactorKey) {
         await bot.sendMessage(chatId, "❌ তথ্য পাওয়া যায়নি। অনুগ্রহ করে নতুন করে কাজ শুরু করুন।");
+        await cleanUpInstagramMessages(bot, chatId, state);
+        state.step = "main_menu";
+        state.instagramData = undefined;
+        userStates.set(chatId, state);
+        await showMainMenu(bot, chatId, profile);
+        return;
+      }
+
+      // Check if this Instagram username is already pending in the database
+      let isPending = false;
+      try {
+        const submissionsRef = collection(db, "submissions");
+        const qUser = query(submissionsRef, where("username", "==", username), limit(10));
+        const snapUser = await getDocs(qUser);
+        snapUser.forEach(docSnap => {
+          if (docSnap.data().status === "pending") {
+            isPending = true;
+          }
+        });
+      } catch (err) {
+        console.error("Error checking duplicate pending Instagram account:", err);
+      }
+
+      if (isPending) {
+        await bot.sendMessage(chatId, `❌ <b>এই ইনস্টাগ্রাম আইডিটি বর্তমানে পেন্ডিং রয়েছে!</b>\n\nএই আইডিটি (<code>${username}</code>) প্যানেলে ইতিমধ্যে পেন্ডিং অবস্থায় জমা রয়েছে। এটি দ্বিতীয়বার সাবমিট করা যাবে না। অনুগ্রহ করে অন্য একটি নতুন আইডি তৈরি করে সাবমিট করুন।`, {
+          parse_mode: "HTML"
+        });
         await cleanUpInstagramMessages(bot, chatId, state);
         state.step = "main_menu";
         state.instagramData = undefined;

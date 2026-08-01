@@ -392,26 +392,63 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
 const membershipCache = new Map<number, { isMember: boolean; timestamp: number }>();
 const CACHE_TTL_MS = 120000; // 2 minutes cache TTL
 
+function parseChannelHandle(input: string, fallback: string): string {
+  if (!input) return fallback;
+  let cleaned = input.trim();
+  if (cleaned.startsWith("https://t.me/")) {
+    cleaned = cleaned.replace("https://t.me/", "");
+  } else if (cleaned.startsWith("t.me/")) {
+    cleaned = cleaned.replace("t.me/", "");
+  }
+  if (!cleaned) return fallback;
+  if (!cleaned.startsWith("@") && !cleaned.startsWith("-100")) {
+    cleaned = "@" + cleaned;
+  }
+  return cleaned;
+}
+
+function getChannelUrl(handle: string): string {
+  let clean = handle.trim();
+  if (clean.startsWith("https://t.me/")) return clean;
+  if (clean.startsWith("@")) clean = clean.substring(1);
+  return `https://t.me/${clean}`;
+}
+
 async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ success: boolean; isMember: boolean; error?: string }> {
   let targetGroup = "@accounttradecenterXincome";
+  let methodChannel = "@eranpointmethod";
+
   try {
     const settingsSnap = await getDoc(doc(db, "settings", "global"));
     if (settingsSnap.exists()) {
       const s = settingsSnap.data();
-      if (s.forceJoinGroup !== undefined) {
+      if (s.forceJoinGroup !== undefined && String(s.forceJoinGroup).trim() !== "") {
         targetGroup = String(s.forceJoinGroup).trim();
+      }
+      if (s.forceJoinMethodChannel !== undefined && String(s.forceJoinMethodChannel).trim() !== "") {
+        methodChannel = String(s.forceJoinMethodChannel).trim();
       }
     }
   } catch (e) {
     // ignore fetch error
   }
 
-  if (!targetGroup || targetGroup.toLowerCase() === "disabled" || targetGroup.toLowerCase() === "none") {
-    return { success: true, isMember: true };
+  const requiredChannels: string[] = [];
+  
+  const parsedMain = parseChannelHandle(targetGroup, "@accounttradecenterXincome");
+  if (parsedMain && parsedMain.toLowerCase() !== "@disabled" && parsedMain.toLowerCase() !== "@none") {
+    requiredChannels.push(parsedMain);
   }
 
-  if (!targetGroup.startsWith("@") && !targetGroup.startsWith("-100")) {
-    targetGroup = "@" + targetGroup;
+  const parsedMethod = parseChannelHandle(methodChannel, "@eranpointmethod");
+  if (parsedMethod && parsedMethod.toLowerCase() !== "@disabled" && parsedMethod.toLowerCase() !== "@none") {
+    if (!requiredChannels.includes(parsedMethod)) {
+      requiredChannels.push(parsedMethod);
+    }
+  }
+
+  if (requiredChannels.length === 0) {
+    return { success: true, isMember: true };
   }
 
   const cached = membershipCache.get(chatId);
@@ -420,33 +457,58 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
     return { success: true, isMember: true };
   }
 
-  try {
-    console.log(`Checking membership for chat ID ${chatId} in group ${targetGroup}`);
-    const member = await bot.getChatMember(targetGroup, chatId);
-    const validStatuses = ["creator", "administrator", "member", "restricted"];
-    const isMember = validStatuses.includes(member.status);
-    
-    // Cache the successful member status
-    membershipCache.set(chatId, { isMember, timestamp: now });
-    return { success: true, isMember };
-  } catch (err: any) {
-    console.error(`Error verifying group membership for chat ${chatId} in ${targetGroup}:`, err?.message || err);
-    // CRITICAL FIX: If Telegram API throws an error (e.g. Bot is not Admin in group or Chat not found),
-    // do NOT block all users permanently! Fail open with warning so the bot remains fully responsive.
-    return { success: false, isMember: true, error: err?.message || String(err) };
+  const validStatuses = ["creator", "administrator", "member", "restricted"];
+
+  for (const channel of requiredChannels) {
+    try {
+      console.log(`Checking membership for chat ID ${chatId} in channel ${channel}`);
+      const member = await bot.getChatMember(channel, chatId);
+      const isMember = validStatuses.includes(member.status);
+      if (!isMember) {
+        return { success: true, isMember: false };
+      }
+    } catch (err: any) {
+      console.error(`Error verifying membership for chat ${chatId} in ${channel}:`, err?.message || err);
+      // Fail open if bot is not admin in channel
+      return { success: false, isMember: true, error: err?.message || String(err) };
+    }
   }
+
+  // Cache the successful member status if user is member of all required channels
+  membershipCache.set(chatId, { isMember: true, timestamp: now });
+  return { success: true, isMember: true };
 }
 
 async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRetry: boolean = false) {
+  let mainUrl = "https://t.me/accounttradecenterXincome";
+  let methodUrl = "https://t.me/eranpointmethod";
+
+  try {
+    const settingsSnap = await getDoc(doc(db, "settings", "global"));
+    if (settingsSnap.exists()) {
+      const s = settingsSnap.data();
+      if (s.forceJoinGroup) {
+        mainUrl = getChannelUrl(String(s.forceJoinGroup));
+      }
+      if (s.forceJoinMethodChannel) {
+        methodUrl = getChannelUrl(String(s.forceJoinMethodChannel));
+      }
+    }
+  } catch (e) {}
+
   let text = "";
   if (isVerifyRetry) {
-    text = `❌ <b>আপনি এখনো আমাদের গ্রুপে জয়েন করেননি!</b>\n\n` +
-           `অনুগ্রহ করে নিচের বাটনে ক্লিক করে প্রথমে আমাদের গ্রুপে জয়েন করুন, তারপর <b>'ভেরিফাই করুন'</b> বাটনে ক্লিক করুন।\n\n` +
-           `📢 গ্রুপ লিংক: https://t.me/accounttradecenterXincome`;
+    text = `❌ <b>আপনি এখনো আমাদের সবগুলো চ্যানেলে জয়েন করেননি!</b>\n\n` +
+           `বটটি ব্যবহার করার জন্য আপনাকে অবশ্যই নিচের <b>মেথড চ্যানেল</b> এবং <b>মেইন চ্যানেল</b> উভয়টিতে জয়েন করতে হবে।\n\n` +
+           `১. 📘 <b>মেথড চ্যানেল:</b> ${methodUrl}\n` +
+           `২. 📢 <b>মেইন চ্যানেল:</b> ${mainUrl}\n\n` +
+           `অনুগ্রহ করে নিচের দুটি বাটনে ক্লিক করে দুটো চ্যানেলেই যুক্ত হন, তারপর <b>'ভেরিফাই করুন'</b> বাটনে চাপ দিন।`;
   } else {
-    text = `📢 <b>গ্রুপে জয়েন হওয়া আবশ্যক!</b>\n\n` +
-           `বটটি ব্যবহার করতে আপনাকে অবশ্যই আমাদের গ্রুপে জয়েন হতে হবে। জয়েন হওয়া ছাড়া আপনি বটটি ব্যবহার করতে পারবেন না।\n\n` +
-           `নিচের <b>'জয়েন করুন'</b> বাটনে ক্লিক করে গ্রুপে যোগ দিন এবং তারপর <b>'ভেরিফাই করুন'</b> বাটনে চাপুন।`;
+    text = `📢 <b>চ্যানেলগুলোতে জয়েন হওয়া বাধ্যতামূলক!</b>\n\n` +
+           `বটটি ব্যবহার করতে আপনাকে অবশ্যই আমাদের <b>মেথড চ্যানেল</b> এবং <b>মেইন চ্যানেল</b> উভয়টিতে জয়েন হতে হবে। জয়েন হওয়া ছাড়া আপনি কোনো কাজ সাবমিট করতে বা বটটি ব্যবহার করতে পারবেন না।\n\n` +
+           `১. 📘 <b>মেথড চ্যানেল:</b> ${methodUrl}\n` +
+           `২. 📢 <b>মেইন চ্যানেল:</b> ${mainUrl}\n\n` +
+           `নিচের দুটি বাটনে ক্লিক করে দুটো চ্যানেলেই যোগ দিন এবং তারপর <b>'ভেরিফাই করুন'</b> বাটনে চাপুন।`;
   }
 
   await bot.sendMessage(chatId, text, {
@@ -454,7 +516,10 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "📢 জয়েন করুন", url: "https://t.me/accounttradecenterXincome" }
+          { text: "📘 মেথড চ্যানেলে জয়েন করুন", url: methodUrl }
+        ],
+        [
+          { text: "📢 মেইন চ্যানেলে জয়েন করুন", url: mainUrl }
         ],
         [
           { text: "✅ ভেরিফাই করুন", callback_data: "verify_join" }
@@ -604,10 +669,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         // API call failed - bot is likely not an admin or chat username is invalid
         await bot.sendMessage(chatId, 
           `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
-          `টেলিগ্রাম বটের গ্রুপ মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
+          `টেলিগ্রাম বটের চ্যানেল মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
           `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
-          `১. আপনার টেলিগ্রাম বটকে অবশ্যই গ্রুপ বা চ্যানেলে <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n\n` +
-          `<i>(যদি গ্রুপে বটকে অ্যাডমিন করা থাকে, তবে নিচে ভেরিফাই বাটনে চাপ দিন)</i>`,
+          `১. আপনার টেলিগ্রাম বটকে অবশ্যই মেইন চ্যানেল (<b>@accounttradecenterXincome</b>) এবং মেথড চ্যানেল (<b>@eranpointmethod</b>) দুটিতেই <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n\n` +
+          `<i>(যদি চ্যানেলগুলোতে বটকে অ্যাডমিন করা থাকে, তবে নিচে ভেরিফাই বাটনে চাপ দিন)</i>`,
           { parse_mode: "HTML" }
         );
       }

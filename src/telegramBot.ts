@@ -389,8 +389,8 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
 }
 
 // --- Force Join Helpers ---
-const membershipCache = new Map<number, { isMember: boolean; timestamp: number }>();
-const CACHE_TTL_MS = 120000; // 2 minutes cache TTL
+const membershipCache = new Map<number, { isMember: boolean; channelsKey: string; timestamp: number }>();
+const CACHE_TTL_MS = 10000; // 10 seconds cache TTL for live checking
 
 function parseChannelHandle(input: string, fallback: string): string {
   if (!input) return fallback;
@@ -451,9 +451,10 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
     return { success: true, isMember: true };
   }
 
+  const requiredChannelsKey = requiredChannels.slice().sort().join(",");
   const cached = membershipCache.get(chatId);
   const now = Date.now();
-  if (cached && (now - cached.timestamp < CACHE_TTL_MS) && cached.isMember) {
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS) && cached.isMember && cached.channelsKey === requiredChannelsKey) {
     return { success: true, isMember: true };
   }
 
@@ -474,7 +475,11 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
         errMsg.includes("user not found") || 
         errMsg.includes("participant") || 
         errMsg.includes("not a member") ||
-        errMsg.includes("left")
+        errMsg.includes("left") ||
+        errMsg.includes("user_not_participant") ||
+        errMsg.includes("participant_id_invalid") ||
+        errMsg.includes("bad request: user") ||
+        errMsg.includes("bad request: participant")
       ) {
         return { success: true, isMember: false };
       }
@@ -483,7 +488,7 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
   }
 
   // Cache the successful member status if user is member of all required channels
-  membershipCache.set(chatId, { isMember: true, timestamp: now });
+  membershipCache.set(chatId, { isMember: true, channelsKey: requiredChannelsKey, timestamp: now });
   return { success: true, isMember: true };
 }
 

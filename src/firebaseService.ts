@@ -59,6 +59,7 @@ export interface AppSettings {
   withdrawalsEnabled?: boolean;
   webhookUrl?: string;
   forceJoinGroup?: string;
+  forceJoinMethodChannel?: string;
 }
 
 export interface UserProfile {

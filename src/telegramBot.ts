@@ -469,8 +469,16 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
       }
     } catch (err: any) {
       console.error(`Error verifying membership for chat ${chatId} in ${channel}:`, err?.message || err);
-      // Fail open if bot is not admin in channel
-      return { success: false, isMember: true, error: err?.message || String(err) };
+      const errMsg = String(err?.message || err).toLowerCase();
+      if (
+        errMsg.includes("user not found") || 
+        errMsg.includes("participant") || 
+        errMsg.includes("not a member") ||
+        errMsg.includes("left")
+      ) {
+        return { success: true, isMember: false };
+      }
+      return { success: false, isMember: false, error: err?.message || String(err) };
     }
   }
 
@@ -1857,9 +1865,9 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
           `⚠️ <b>গ্রুপ ভেরিফিকেশন ত্রুটি (Bot Configuration Error):</b>\n\n` +
           `টেলিগ্রাম বটটি মেম্বারশিপ চেক করতে পারছে না।\n\n` +
           `<b>সম্ভাবনা ও সমাধান:</b>\n` +
-          `১. আপনার বটটিকে এখনো <b>@accounttradecenterXincome</b> গ্রুপ বা চ্যানেলে <b>অ্যাডমিন (Admin)</b> করা হয়নি।\n` +
-          `২. গ্রুপে বটকে অ্যাডমিন হিসেবে যুক্ত করে মেম্বার দেখার পারমিশন দিন, অন্যথায় টেলিগ্রাম এপিআই মেম্বারশিপ ভেরিফাই করতে দেয় না।\n\n` +
-          `<i>(বটকে গ্রুপে অ্যাডমিন করার পর আবার ভেরিফাই বাটনে ক্লিক করে চেষ্টা করুন)</i>`,
+          `১. আপনার বটটিকে অবশ্যই মেইন চ্যানেল (<b>@accounttradecenterXincome</b>) এবং মেথড চ্যানেল (<b>@eranpointmethod</b>) দুটিতেই <b>অ্যাডমিন (Admin)</b> করা হয়েছে কি না নিশ্চিত করুন।\n` +
+          `২. চ্যানেলগুলোতে বটকে অ্যাডমিন হিসেবে যুক্ত করে মেম্বার দেখার পারমিশন দিন, অন্যথায় টেলিগ্রাম এপিআই মেম্বারশিপ ভেরিফাই করতে দেয় না।\n\n` +
+          `<i>(বটকে দুটি চ্যানেলেই অ্যাডমিন করার পর আবার ভেরিফাই বাটনে ক্লিক করে চেষ্টা করুন)</i>`,
           { parse_mode: "HTML" }
         );
       }
@@ -1877,11 +1885,11 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
     if (!membership.success) {
       await bot.sendMessage(chatId, 
         `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
-        `টেলিগ্রাম বটের গ্রুপ মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
+        `টেলিগ্রাম বটের চ্যানেল মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
         `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
-        `১. আপনার টেলিগ্রাম বটকে অবশ্যই <b>@accounttradecenterXincome</b> গ্রুপ বা চ্যানেলে <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n` +
+        `১. আপনার টেলিগ্রাম বটকে অবশ্যই মেইন চ্যানেল (<b>@accounttradecenterXincome</b>) এবং মেথড চ্যানেল (<b>@eranpointmethod</b>) দুটিতেই <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n` +
         `২. বটকে অ্যাডমিন না বানালে টেলিগ্রাম সিকিউরিটি নিয়মানুযায়ী বট কোনো মেম্বারের তথ্য অ্যাক্সেস করতে পারে না।\n\n` +
-        `<i>(আপনি যদি এই বটের মালিক হন, তবে এখনই বটটিকে গ্রুপে অ্যাডমিন হিসেবে যুক্ত করুন)</i>`,
+        `<i>(আপনি যদি এই বটের মালিক হন, তবে এখনই বটটিকে চ্যানেল দুটিতে অ্যাডমিন হিসেবে যুক্ত করুন)</i>`,
         { parse_mode: "HTML" }
       );
     }

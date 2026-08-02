@@ -11,7 +11,8 @@ import {
   getDoc,
   deleteDoc,
   where,
-  limit
+  limit,
+  increment
 } from "firebase/firestore";
 
 export interface Submission {
@@ -198,17 +199,40 @@ export async function updateSubmissionSubmittedBy(id: string, submittedBy: strin
   }
 }
 
-export async function preserveUserEarnings(walletNumber: string, amount: number): Promise<void> {
-  if (!walletNumber || amount <= 0) return;
+export async function preserveUserEarnings(walletNumberOrId: string, amount: number): Promise<void> {
+  if (!walletNumberOrId || amount <= 0) return;
   try {
-    const docRef = doc(db, "profiles", walletNumber);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const current = docSnap.data().accumulatedApprovedEarnings || 0;
-      await updateDoc(docRef, { accumulatedApprovedEarnings: current + amount });
+    const profilesRef = collection(db, "profiles");
+    let targetDocRef: any = doc(db, "profiles", walletNumberOrId);
+    let currentDocSnap = await getDoc(targetDocRef);
+    let profileData: any = null;
+
+    if (currentDocSnap.exists()) {
+      profileData = currentDocSnap.data();
     } else {
-      await setDoc(docRef, {
-        walletNumber,
+      // Query by walletNumber, telegramChatId, or payoutNumber to avoid creating orphan duplicates
+      const q1 = query(profilesRef, where("telegramChatId", "==", String(walletNumberOrId)), limit(1));
+      let qSnap = await getDocs(q1);
+      if (qSnap.empty) {
+        const q2 = query(profilesRef, where("walletNumber", "==", String(walletNumberOrId)), limit(1));
+        qSnap = await getDocs(q2);
+      }
+      if (qSnap.empty) {
+        const q3 = query(profilesRef, where("payoutNumber", "==", String(walletNumberOrId)), limit(1));
+        qSnap = await getDocs(q3);
+      }
+
+      if (!qSnap.empty) {
+        targetDocRef = qSnap.docs[0].ref;
+        profileData = qSnap.docs[0].data();
+      }
+    }
+
+    if (profileData) {
+      await updateDoc(targetDocRef, { accumulatedApprovedEarnings: increment(amount) });
+    } else {
+      await setDoc(targetDocRef, {
+        walletNumber: walletNumberOrId,
         walletType: "bKash",
         createdAt: new Date().toISOString(),
         accumulatedApprovedEarnings: amount,
@@ -216,7 +240,7 @@ export async function preserveUserEarnings(walletNumber: string, amount: number)
       });
     }
   } catch (err) {
-    console.warn(`Failed to preserve earnings for ${walletNumber}:`, err);
+    console.warn(`Failed to preserve earnings for ${walletNumberOrId}:`, err);
   }
 }
 
@@ -227,7 +251,11 @@ export async function deleteSubmission(id: string): Promise<void> {
     if (docSnap.exists()) {
       const data = docSnap.data();
       if (data.status === "approved" && data.submittedBy) {
-        const rate = data.rate !== undefined ? data.rate : 4.2;
+        const settings = await getSettings();
+        const defaultRate = data.category === "facebook" 
+          ? (settings.facebookRatePerId || settings.ratePerId || 45)
+          : (settings.ratePerId || 45);
+        const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
         await preserveUserEarnings(data.submittedBy, rate);
       }
     }
@@ -407,13 +435,17 @@ async function notifyTelegram(sub: Omit<Submission, "id">) {
 
 export async function clearAllSubmissions(): Promise<void> {
   try {
+    const settings = await getSettings();
     const q = collection(db, "submissions");
     const querySnapshot = await withTimeout(getDocs(q), 5000);
     const deletePromises: Promise<void>[] = [];
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();
       if (data.status === "approved" && data.submittedBy) {
-        const rate = data.rate !== undefined ? data.rate : 4.2;
+        const defaultRate = data.category === "facebook" 
+          ? (settings.facebookRatePerId || settings.ratePerId || 45)
+          : (settings.ratePerId || 45);
+        const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
         preserveUserEarnings(data.submittedBy, rate);
       }
       deletePromises.push(deleteDoc(docSnap.ref));
@@ -427,6 +459,7 @@ export async function clearAllSubmissions(): Promise<void> {
 
 export async function clearSubmissionsByCategory(category: "instagram" | "facebook"): Promise<void> {
   try {
+    const settings = await getSettings();
     // Since some submissions may have category unset, we treat undefined as "instagram"
     const q = collection(db, "submissions");
     const querySnapshot = await withTimeout(getDocs(q), 5000);
@@ -436,7 +469,10 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
       const subCategory = data.category || "instagram";
       if (subCategory === category) {
         if (data.status === "approved" && data.submittedBy) {
-          const rate = data.rate !== undefined ? data.rate : 4.2;
+          const defaultRate = category === "facebook" 
+            ? (settings.facebookRatePerId || settings.ratePerId || 45)
+            : (settings.ratePerId || 45);
+          const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
           preserveUserEarnings(data.submittedBy, rate);
         }
         deletePromises.push(deleteDoc(docSnap.ref));
@@ -617,10 +653,9 @@ export async function adjustUserBonusBalance(workerNameOrId: string, amount: num
     }
 
     if (profileData) {
-      const currentBonus = profileData.bonusBalance || 0;
-      const newBonus = currentBonus + amount;
-      await updateDoc(targetDocRef, { bonusBalance: newBonus });
-      return newBonus;
+      await updateDoc(targetDocRef, { bonusBalance: increment(amount) });
+      const updatedSnap = await getDoc(targetDocRef);
+      return updatedSnap.exists() ? ((updatedSnap.data() as any)?.bonusBalance || 0) : ((profileData.bonusBalance || 0) + amount);
     } else {
       // Create new profile if doc doesn't exist yet
       const newBonus = amount;

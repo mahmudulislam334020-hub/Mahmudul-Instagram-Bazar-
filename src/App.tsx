@@ -1103,18 +1103,18 @@ export default function App() {
 
   // Helper calculation functions
   const calculateUserTotalEarned = (name: string) => {
-    const matchingProfile = allProfiles.find(p => 
+    const matchingProfiles = allProfiles.filter(p => 
       p.walletNumber === name || p.telegramChatId === name || p.payoutNumber === name
     );
 
     const relatedIds = new Set<string>([name]);
-    if (matchingProfile) {
-      if (matchingProfile.walletNumber) relatedIds.add(matchingProfile.walletNumber);
-      if (matchingProfile.telegramChatId) relatedIds.add(matchingProfile.telegramChatId);
-      if (matchingProfile.payoutNumber) relatedIds.add(matchingProfile.payoutNumber);
-    }
-
-    const extraEarnings = (matchingProfile?.accumulatedApprovedEarnings || 0) + (matchingProfile?.bonusBalance || 0);
+    let extraEarnings = 0;
+    matchingProfiles.forEach(p => {
+      if (p.walletNumber) relatedIds.add(p.walletNumber);
+      if (p.telegramChatId) relatedIds.add(p.telegramChatId);
+      if (p.payoutNumber) relatedIds.add(p.payoutNumber);
+      extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
+    });
 
     const userApprovedSubs = submissions.filter(s => 
       (relatedIds.has(s.submittedBy) || ((s as any).telegramChatId && relatedIds.has((s as any).telegramChatId))) && 
@@ -1122,13 +1122,13 @@ export default function App() {
     );
 
     const activeEarned = userApprovedSubs.reduce((sum, s) => {
-      if (s.rate !== undefined) {
+      if (s.rate !== undefined && s.rate > 0) {
         return sum + s.rate;
       }
       const isFacebook = s.category === 'facebook';
       const rate = isFacebook 
-        ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-        : settings.ratePerId;
+        ? (settings.facebookRatePerId !== undefined && settings.facebookRatePerId > 0 ? settings.facebookRatePerId : (settings.ratePerId || 45))
+        : (settings.ratePerId || 45);
       return sum + rate;
     }, 0);
 
@@ -1138,16 +1138,16 @@ export default function App() {
   const calculateUserBalance = (name: string) => {
     const totalEarned = calculateUserTotalEarned(name);
     
-    const matchingProfile = allProfiles.find(p => 
+    const matchingProfiles = allProfiles.filter(p => 
       p.walletNumber === name || p.telegramChatId === name || p.payoutNumber === name
     );
 
     const relatedIds = new Set<string>([name]);
-    if (matchingProfile) {
-      if (matchingProfile.walletNumber) relatedIds.add(matchingProfile.walletNumber);
-      if (matchingProfile.telegramChatId) relatedIds.add(matchingProfile.telegramChatId);
-      if (matchingProfile.payoutNumber) relatedIds.add(matchingProfile.payoutNumber);
-    }
+    matchingProfiles.forEach(p => {
+      if (p.walletNumber) relatedIds.add(p.walletNumber);
+      if (p.telegramChatId) relatedIds.add(p.telegramChatId);
+      if (p.payoutNumber) relatedIds.add(p.payoutNumber);
+    });
 
     // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
     const withdrawnAmount = withdrawals

@@ -180,28 +180,47 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const submissionsRef = collection(db, "submissions");
   const uniqueSubmissions = new Map<string, any>();
 
-  // Fetch user profile first to gather all linked IDs (walletNumber, telegramChatId, payoutNumber)
-  let profileData: any = null;
+  // Fetch user profiles to gather all linked IDs (walletNumber, telegramChatId, payoutNumber)
+  const profilesRef = collection(db, "profiles");
+  const matchingProfilesMap = new Map<string, any>();
+
   if (walletNumber) {
     try {
       const pDoc = await getDoc(doc(db, "profiles", walletNumber));
-      if (pDoc.exists()) profileData = pDoc.data();
+      if (pDoc.exists()) matchingProfilesMap.set(pDoc.id, pDoc.data());
     } catch (e) {}
-  }
-  if (!profileData && telegramChatId) {
+
     try {
-      const pQuery = query(collection(db, "profiles"), where("telegramChatId", "==", String(telegramChatId)), limit(1));
-      const pSnap = await getDocs(pQuery);
-      if (!pSnap.empty) profileData = pSnap.docs[0].data();
+      const q1 = query(profilesRef, where("walletNumber", "==", walletNumber));
+      const s1 = await getDocs(q1);
+      s1.forEach(d => matchingProfilesMap.set(d.id, d.data()));
+    } catch (e) {}
+
+    try {
+      const q2 = query(profilesRef, where("payoutNumber", "==", walletNumber));
+      const s2 = await getDocs(q2);
+      s2.forEach(d => matchingProfilesMap.set(d.id, d.data()));
     } catch (e) {}
   }
 
+  if (telegramChatId) {
+    try {
+      const q3 = query(profilesRef, where("telegramChatId", "==", String(telegramChatId)));
+      const s3 = await getDocs(q3);
+      s3.forEach(d => matchingProfilesMap.set(d.id, d.data()));
+    } catch (e) {}
+  }
+
+  const matchingProfiles = Array.from(matchingProfilesMap.values());
   const searchIds = new Set<string>();
   if (walletNumber) searchIds.add(walletNumber);
   if (telegramChatId) searchIds.add(String(telegramChatId));
-  if (profileData?.walletNumber) searchIds.add(profileData.walletNumber);
-  if (profileData?.telegramChatId) searchIds.add(String(profileData.telegramChatId));
-  if (profileData?.payoutNumber) searchIds.add(profileData.payoutNumber);
+
+  matchingProfiles.forEach(pData => {
+    if (pData?.walletNumber) searchIds.add(pData.walletNumber);
+    if (pData?.telegramChatId) searchIds.add(String(pData.telegramChatId));
+    if (pData?.payoutNumber) searchIds.add(pData.payoutNumber);
+  });
 
   for (const sid of Array.from(searchIds)) {
     if (!sid) continue;
@@ -226,8 +245,8 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
 
   // Self-Healing logic:
   // Update submittedBy and telegramChatId on submissions if they don't match the primary identifiers
-  const primaryWallet = walletNumber || profileData?.walletNumber || (telegramChatId ? String(telegramChatId) : "");
-  const primaryChatId = telegramChatId ? String(telegramChatId) : (profileData?.telegramChatId ? String(profileData.telegramChatId) : "");
+  const primaryWallet = walletNumber || matchingProfiles.find(p => p.walletNumber)?.walletNumber || (telegramChatId ? String(telegramChatId) : "");
+  const primaryChatId = telegramChatId ? String(telegramChatId) : (matchingProfiles.find(p => p.telegramChatId)?.telegramChatId ? String(matchingProfiles.find(p => p.telegramChatId).telegramChatId) : "");
 
   for (const sub of userSubmissions) {
     let needsUpdate = false;
@@ -258,21 +277,21 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
   const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
   const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
 
-  // Fetch extra preserved earnings & bonus balance from user profile in Firestore
+  // Fetch extra preserved earnings & bonus balance from ALL matching user profiles in Firestore
   let extraEarnings = 0;
-  if (profileData) {
-    extraEarnings = (profileData.accumulatedApprovedEarnings || 0) + (profileData.bonusBalance || 0);
-  }
+  matchingProfiles.forEach(p => {
+    extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
+  });
 
   // Calculate rate based on category
   const activeEarned = userSubmissions
     .filter(s => s.status === "approved")
     .reduce((sum, s) => {
-      if (s.rate !== undefined) {
+      if (s.rate !== undefined && s.rate > 0) {
         return sum + s.rate;
       }
       const isFacebook = s.category === "facebook";
-      const rate = isFacebook ? facebookRatePerId : ratePerId;
+      const rate = isFacebook ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45);
       return sum + rate;
     }, 0);
 

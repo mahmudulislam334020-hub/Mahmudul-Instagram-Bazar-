@@ -11,9 +11,11 @@ import {
   User,
   Key,
   Search,
-  Wallet
+  Wallet,
+  Calendar
 } from 'lucide-react';
-import { Submission, AppSettings, Withdrawal } from '../firebaseService';
+import { Submission, AppSettings, Withdrawal, UserProfile } from '../firebaseService';
+import UserDetailsModal from './UserDetailsModal';
 
 export interface AdminFacebookProps {
   settings: AppSettings;
@@ -50,6 +52,8 @@ export interface AdminFacebookProps {
   setFbSubTab: React.Dispatch<React.SetStateAction<'submissions' | 'summary' | 'settings' | 'clear'>>;
   calculateUserBalance?: (workerName: string) => number;
   handleAdjustUserBalance?: (workerName: string, amount: number) => Promise<void>;
+  allSubmissions?: Submission[];
+  allProfiles?: UserProfile[];
 }
 
 export default function AdminFacebook({
@@ -86,12 +90,16 @@ export default function AdminFacebook({
   fbSubTab,
   setFbSubTab,
   calculateUserBalance,
-  handleAdjustUserBalance
+  handleAdjustUserBalance,
+  allSubmissions = [],
+  allProfiles = []
 }: AdminFacebookProps) {
   const [passwordFilter, setPasswordFilter] = React.useState('');
+  const [exportStatusMode, setExportStatusMode] = React.useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
   const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
   const [passwordActionResult, setPasswordActionResult] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [selectedWorkerForBalance, setSelectedWorkerForBalance] = React.useState<string | null>(null);
+  const [selectedWorkerForDetails, setSelectedWorkerForDetails] = React.useState<string | null>(null);
   const [adjustAmount, setAdjustAmount] = React.useState<string>('');
 
   // Extract unique passwords and count how many submissions have each password
@@ -114,6 +122,18 @@ export default function AdminFacebook({
       (sub.password || '').toLowerCase().includes(query)
     );
   }, [categoryFilteredSubmissions, passwordFilter]);
+
+  // Filter displayed submissions based on selected export status mode (pending, all, approved, rejected)
+  const exportSubmissionsList = React.useMemo(() => {
+    if (exportStatusMode === 'pending') {
+      return displayedSubmissions.filter(s => s.status === 'pending');
+    } else if (exportStatusMode === 'approved') {
+      return displayedSubmissions.filter(s => s.status === 'approved');
+    } else if (exportStatusMode === 'rejected') {
+      return displayedSubmissions.filter(s => s.status === 'rejected');
+    }
+    return displayedSubmissions; // 'all'
+  }, [displayedSubmissions, exportStatusMode]);
 
   // Handle deleting all submissions matching current password filter
   const handleDeleteFilteredByPassword = async () => {
@@ -148,12 +168,12 @@ export default function AdminFacebook({
     }
   };
 
-  // Export filtered submissions by password as Excel (CSV)
+  // Export filtered submissions as Excel (CSV) based on selected status mode
   const handleExportFilteredCSV = () => {
-    if (displayedSubmissions.length === 0) return;
+    if (exportSubmissionsList.length === 0) return;
     const headers = ["UID", "Password", "First Name", "Last Name", "Cookie", "Submitted By", "Status", "Submitted At"];
 
-    const rows = displayedSubmissions.map(s => [
+    const rows = exportSubmissionsList.map(s => [
       s.username,
       s.password,
       s.firstName || "",
@@ -170,7 +190,8 @@ export default function AdminFacebook({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `facebook_filtered_passwords_${passwordFilter || 'all'}_${new Date().toLocaleDateString()}.csv`);
+    const pwdTag = passwordFilter ? `_pass_${passwordFilter}` : '';
+    link.setAttribute("download", `facebook_${exportStatusMode}_ids${pwdTag}_${new Date().toLocaleDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -346,16 +367,16 @@ export default function AdminFacebook({
             </div>
           </div>
 
-          {/* PASSWORD / DATE FILTER BOX */}
+          {/* PASSWORD FILTER & EXPORT STATUS OPTIONS BOX */}
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Key size={16} className="text-amber-400" />
-                  <span>পাসওয়ার্ড / ডেট ভিত্তিক ফিল্টার অপশন (Password & Date Filter)</span>
+                  <span>পাসওয়ার্ড ভিত্তিক ফিল্টার ও ডাউনলোড অপশন (Password Search & Excel Export)</span>
                 </h4>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  পাসওয়ার্ডের শেষের তারিখ বা কোড টাইপ করে সার্চ করুন অথবা নিচের ব্যাজে ক্লিক করে আইডি ফিল্টার করুন এবং এক ক্লিকে ডিলিট করুন।
+                  পাসওয়ার্ড ফিল্টার করুন এবং ডাউনলোডের সময় শুধুমাত্র পেন্ডিং আইডি নাকি সবগুলো আইডি ডাউনলোড করবেন তা সিলেক্ট করুন।
                 </p>
               </div>
               {passwordFilter && (
@@ -369,7 +390,7 @@ export default function AdminFacebook({
               )}
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               {/* Search input field */}
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
@@ -377,7 +398,7 @@ export default function AdminFacebook({
                 </span>
                 <input
                   type="text"
-                  placeholder="পাসওয়ার্ড বা ডেট টাইপ করুন (যেমন: nihad@16, @16, pass2026)..."
+                  placeholder="পাসওয়ার্ড বা কোড টাইপ করুন (যেমন: nihad@16, @16, pass2026)..."
                   value={passwordFilter}
                   onChange={(e) => setPasswordFilter(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 pl-10 pr-4 py-2.5 rounded-xl text-slate-200 text-xs font-mono outline-none focus:border-amber-500 transition-all placeholder:text-slate-600"
@@ -415,7 +436,103 @@ export default function AdminFacebook({
                 </div>
               )}
 
-              {/* Action bar when filter is active */}
+              {/* DOWNLOAD STATUS FILTER SELECTOR */}
+              <div className="bg-slate-950 border border-slate-800/80 p-4 rounded-xl space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Download size={14} className="text-emerald-400" />
+                    <span>এক্সেল ডাউনলোড ফিল্টার অপশন (Export Mode):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    আপনি ডাউনলোডের ফাইলে কোন আইডিগুলো রাখতে চান?
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExportStatusMode('pending')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
+                      exportStatusMode === 'pending'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>⏳ শুধুমাত্র পেন্ডিং আইডি</span>
+                    <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded text-[10px] font-mono border border-amber-500/30">
+                      {displayedSubmissions.filter(s => s.status === 'pending').length}টি
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportStatusMode('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
+                      exportStatusMode === 'all'
+                        ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>📁 সবগুলো আইডি (All)</span>
+                    <span className="bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded text-[10px] font-mono border border-indigo-500/30">
+                      {displayedSubmissions.length}টি
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportStatusMode('approved')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
+                      exportStatusMode === 'approved'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>✅ শুধুমাত্র অ্যাপ্রুভড</span>
+                    <span className="bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded text-[10px] font-mono border border-emerald-500/30">
+                      {displayedSubmissions.filter(s => s.status === 'approved').length}টি
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportStatusMode('rejected')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
+                      exportStatusMode === 'rejected'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>❌ শুধুমাত্র রিজেক্টড</span>
+                    <span className="bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded text-[10px] font-mono border border-rose-500/30">
+                      {displayedSubmissions.filter(s => s.status === 'rejected').length}টি
+                    </span>
+                  </button>
+                </div>
+
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-slate-800/60">
+                  <span className="text-[11px] text-slate-400">
+                    {passwordFilter ? (
+                      <>সার্চ: <code className="text-amber-300 font-mono">{passwordFilter}</code> | </>
+                    ) : null}
+                    ডাউনলোডের জন্য রেডি: <strong className="text-emerald-400">{exportSubmissionsList.length}টি</strong> আইডি
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleExportFilteredCSV}
+                    disabled={exportSubmissionsList.length === 0}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Download size={14} />
+                    <span>
+                      ডাউনলোড এক্সেল ({exportStatusMode === 'pending' ? 'শুধুমাত্র পেন্ডিং' : exportStatusMode === 'approved' ? 'শুধুমাত্র অ্যাপ্রুভড' : exportStatusMode === 'rejected' ? 'শুধুমাত্র রিজেক্টড' : 'সবগুলো'}: {exportSubmissionsList.length}টি)
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Delete action bar when password filter is active */}
               {passwordFilter.trim() && (
                 <div className="bg-slate-950 border border-amber-500/30 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="text-xs text-slate-300 space-y-0.5">
@@ -428,30 +545,19 @@ export default function AdminFacebook({
                   </div>
 
                   {displayedSubmissions.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                      <button
-                        type="button"
-                        onClick={handleExportFilteredCSV}
-                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                      >
-                        <Download size={14} />
-                        <span>এক্সেল ডাউনলোড ({displayedSubmissions.length}টি)</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleDeleteFilteredByPassword}
-                        disabled={isBulkDeletingByPassword}
-                        className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                      >
-                        <Trash2 size={14} />
-                        <span>
-                          {isBulkDeletingByPassword
-                            ? 'ডিলিট হচ্ছে...'
-                            : `এই পাসওয়ার্ডের আইডি সব ডিলিট (${displayedSubmissions.length}টি)`}
-                        </span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDeleteFilteredByPassword}
+                      disabled={isBulkDeletingByPassword}
+                      className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                      <span>
+                        {isBulkDeletingByPassword
+                          ? 'ডিলিট হচ্ছে...'
+                          : `এই পাসওয়ার্ডের আইডি সব ডিলিট (${displayedSubmissions.length}টি)`}
+                      </span>
+                    </button>
                   )}
                 </div>
               )}
@@ -680,6 +786,16 @@ export default function AdminFacebook({
                               className="text-[10.5px] font-bold text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer"
                             >
                               💰 ব্যালেন্স বাড়ান / কমান
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedWorkerForDetails(group.worker);
+                              }}
+                              className="text-[10.5px] font-bold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              🔍 ইউজারের ডিটেইলস দেখুন
                             </button>
                           </p>
                         </div>
@@ -1071,6 +1187,20 @@ export default function AdminFacebook({
             </div>
           </div>
         </div>
+      )}
+
+      {/* USER DETAILS FULL MODAL */}
+      {selectedWorkerForDetails && (
+        <UserDetailsModal
+          workerName={selectedWorkerForDetails}
+          onClose={() => setSelectedWorkerForDetails(null)}
+          allSubmissions={allSubmissions}
+          withdrawals={withdrawals}
+          allProfiles={allProfiles}
+          settings={settings}
+          calculateUserBalance={calculateUserBalance}
+          handleAdjustUserBalance={handleAdjustUserBalance}
+        />
       )}
     </div>
   );

@@ -1531,6 +1531,8 @@ export default function App() {
               setFbSubTab={setFbSubTab}
               calculateUserBalance={calculateUserBalance}
               handleAdjustUserBalance={handleAdjustUserBalance}
+              allSubmissions={submissions}
+              allProfiles={allProfiles}
             />
           )}
 
@@ -1571,6 +1573,8 @@ export default function App() {
               setIgSubTab={setIgSubTab}
               calculateUserBalance={calculateUserBalance}
               handleAdjustUserBalance={handleAdjustUserBalance}
+              allSubmissions={submissions}
+              allProfiles={allProfiles}
             />
           )}
 

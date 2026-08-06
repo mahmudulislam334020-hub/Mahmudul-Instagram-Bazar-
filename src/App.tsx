@@ -505,6 +505,49 @@ export default function App() {
       return;
     }
 
+    // Check individual payment method availability
+    const bkashActive = settings.bkashEnabled !== false;
+    const nagadActive = settings.nagadEnabled !== false;
+    const rocketActive = settings.rocketEnabled !== false;
+
+    const activeMethodsList: string[] = [];
+    if (bkashActive) activeMethodsList.push("নগদ (Nagad)");
+    if (nagadActive) activeMethodsList.push("নগদ (Nagad)");
+    if (rocketActive) activeMethodsList.push("রকেট (Rocket)");
+
+    if (withdrawMethod === 'bKash' && !bkashActive) {
+      const openMethods: string[] = [];
+      if (nagadActive) openMethods.push("নগদ (Nagad)");
+      if (rocketActive) openMethods.push("রকেট (Rocket)");
+      const msgText = openMethods.length > 0 
+        ? `⚠️ বিকাশ (bKash) উইথড্র বর্তমানে বন্ধ রয়েছে। আপনি ${openMethods.join(" অথবা ")} এর মাধ্যমে টাকা উত্তোলন করতে পারবেন।`
+        : `⚠️ বিকাশ (bKash) উইথড্র বর্তমানে বন্ধ রয়েছে।`;
+      setWithdrawMsg({ type: 'error', text: msgText });
+      return;
+    }
+
+    if (withdrawMethod === 'Nagad' && !nagadActive) {
+      const openMethods: string[] = [];
+      if (bkashActive) openMethods.push("বিকাশ (bKash)");
+      if (rocketActive) openMethods.push("রকেট (Rocket)");
+      const msgText = openMethods.length > 0 
+        ? `⚠️ নগদ (Nagad) উইথড্র বর্তমানে বন্ধ রয়েছে। আপনি ${openMethods.join(" অথবা ")} এর মাধ্যমে টাকা উত্তোলন করতে পারবেন।`
+        : `⚠️ নগদ (Nagad) উইথড্র বর্তমানে বন্ধ রয়েছে।`;
+      setWithdrawMsg({ type: 'error', text: msgText });
+      return;
+    }
+
+    if (withdrawMethod === 'Rocket' && !rocketActive) {
+      const openMethods: string[] = [];
+      if (bkashActive) openMethods.push("বিকাশ (bKash)");
+      if (nagadActive) openMethods.push("নগদ (Nagad)");
+      const msgText = openMethods.length > 0 
+        ? `⚠️ রকেট (Rocket) উইথড্র বর্তমানে বন্ধ রয়েছে। আপনি ${openMethods.join(" অথবা ")} এর মাধ্যমে টাকা উত্তোলন করতে পারবেন।`
+        : `⚠️ রকেট (Rocket) উইথড্র বর্তমানে বন্ধ রয়েছে।`;
+      setWithdrawMsg({ type: 'error', text: msgText });
+      return;
+    }
+
     // Enforce safety constraints
     if (activeWalletNumber !== userWalletNumber) {
       setWithdrawMsg({ 
@@ -1109,11 +1152,18 @@ export default function App() {
 
     const relatedIds = new Set<string>([name]);
     let extraEarnings = 0;
+    const processedProfiles = new Set<string>();
+
     matchingProfiles.forEach(p => {
       if (p.walletNumber) relatedIds.add(p.walletNumber);
       if (p.telegramChatId) relatedIds.add(p.telegramChatId);
       if (p.payoutNumber) relatedIds.add(p.payoutNumber);
-      extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
+
+      const pKey = p.walletNumber || p.telegramChatId || p.payoutNumber;
+      if (pKey && !processedProfiles.has(pKey)) {
+        processedProfiles.add(pKey);
+        extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
+      }
     });
 
     const userApprovedSubs = submissions.filter(s => 
@@ -1121,7 +1171,11 @@ export default function App() {
       s.status === 'approved'
     );
 
+    const seenSubIds = new Set<string>();
     const activeEarned = userApprovedSubs.reduce((sum, s) => {
+      if (s.id && seenSubIds.has(s.id)) return sum;
+      if (s.id) seenSubIds.add(s.id);
+
       if (s.rate !== undefined && s.rate > 0) {
         return sum + s.rate;
       }
@@ -1150,9 +1204,14 @@ export default function App() {
     });
 
     // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
+    const seenWithdrawalIds = new Set<string>();
     const withdrawnAmount = withdrawals
       .filter(w => (relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))) && (w.status === 'approved' || w.status === 'pending'))
-      .reduce((sum, current) => sum + current.amount, 0);
+      .reduce((sum, current) => {
+        if (current.id && seenWithdrawalIds.has(current.id)) return sum;
+        if (current.id) seenWithdrawalIds.add(current.id);
+        return sum + current.amount;
+      }, 0);
 
     return Math.max(0, totalEarned - withdrawnAmount);
   };
@@ -1191,20 +1250,60 @@ export default function App() {
     }
   };
 
-  // Combined totals across all users
-  const totalUsersCombinedBalance = useMemo(() => {
-    const allUsernames = new Set<string>();
-    allProfiles.forEach(p => { if (p.walletNumber) allUsernames.add(p.walletNumber); });
-    submissions.forEach(s => { if (s.submittedBy) allUsernames.add(s.submittedBy); });
-    withdrawals.forEach(w => { if (w.submittedBy) allUsernames.add(w.submittedBy); });
+  // Build unique disjoint user clusters across profiles, submissions, and withdrawals
+  const userClusters = useMemo(() => {
+    const clusters: Set<string>[] = [];
 
-    let total = 0;
-    allUsernames.forEach(username => {
-      total += calculateUserBalance(username);
+    const addGroup = (rawIds: (string | undefined | null)[]) => {
+      const validIds = Array.from(new Set(rawIds.filter(Boolean).map(id => String(id).trim()).filter(id => id.length > 0)));
+      if (validIds.length === 0) return;
+
+      const matchingIndices: number[] = [];
+      clusters.forEach((cluster, idx) => {
+        if (validIds.some(id => cluster.has(id))) {
+          matchingIndices.push(idx);
+        }
+      });
+
+      if (matchingIndices.length === 0) {
+        clusters.push(new Set(validIds));
+      } else if (matchingIndices.length === 1) {
+        validIds.forEach(id => clusters[matchingIndices[0]].add(id));
+      } else {
+        const target = clusters[matchingIndices[0]];
+        validIds.forEach(id => target.add(id));
+        for (let i = matchingIndices.length - 1; i > 0; i--) {
+          const sIdx = matchingIndices[i];
+          clusters[sIdx].forEach(id => target.add(id));
+          clusters.splice(sIdx, 1);
+        }
+      }
+    };
+
+    allProfiles.forEach(p => {
+      addGroup([p.walletNumber, p.telegramChatId, p.payoutNumber]);
+    });
+    submissions.forEach(s => {
+      addGroup([s.submittedBy, (s as any).telegramChatId]);
+    });
+    withdrawals.forEach(w => {
+      addGroup([w.submittedBy, (w as any).telegramChatId]);
     });
 
+    return clusters;
+  }, [allProfiles, submissions, withdrawals]);
+
+  // Combined total balance across all unique users (no double counting)
+  const totalUsersCombinedBalance = useMemo(() => {
+    let total = 0;
+    userClusters.forEach(cluster => {
+      const representative = Array.from(cluster)[0] as string | undefined;
+      if (representative) {
+        total += calculateUserBalance(representative);
+      }
+    });
     return total;
-  }, [allProfiles, submissions, withdrawals, settings]);
+  }, [userClusters, allProfiles, submissions, withdrawals, settings]);
 
   const totalPendingWithdrawalAmount = useMemo(() => {
     return withdrawals
@@ -1219,12 +1318,8 @@ export default function App() {
   }, [withdrawals]);
 
   const totalUniqueUsersCount = useMemo(() => {
-    const allUsernames = new Set<string>();
-    allProfiles.forEach(p => { if (p.walletNumber) allUsernames.add(p.walletNumber); });
-    submissions.forEach(s => { if (s.submittedBy) allUsernames.add(s.submittedBy); });
-    withdrawals.forEach(w => { if (w.submittedBy) allUsernames.add(w.submittedBy); });
-    return allUsernames.size;
-  }, [allProfiles, submissions, withdrawals]);
+    return userClusters.length;
+  }, [userClusters]);
 
   const calculateUserPendingEarned = (name: string) => {
     const userPendingSubs = submissions.filter(s => s.submittedBy === name && s.status === 'pending');

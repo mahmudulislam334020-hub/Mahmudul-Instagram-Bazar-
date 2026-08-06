@@ -58,6 +58,9 @@ export interface AppSettings {
   facebookWorkActive?: boolean;
   facebookRatePerId?: number;
   withdrawalsEnabled?: boolean;
+  bkashEnabled?: boolean;
+  nagadEnabled?: boolean;
+  rocketEnabled?: boolean;
   webhookUrl?: string;
   forceJoinGroup?: string;
   forceJoinMethodChannel?: string;
@@ -108,7 +111,10 @@ const getFallbackSettings = (): AppSettings => {
     facebookPassword: "",
     facebookWorkActive: true,
     facebookRatePerId: 45,
-    withdrawalsEnabled: true
+    withdrawalsEnabled: true,
+    bkashEnabled: true,
+    nagadEnabled: true,
+    rocketEnabled: true
   };
 };
 

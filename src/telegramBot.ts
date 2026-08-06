@@ -1131,14 +1131,25 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       state.withdrawData = {};
       userStates.set(chatId, state);
 
+      const bkashActive = settings.bkashEnabled !== false;
+      const nagadActive = settings.nagadEnabled !== false;
+      const rocketActive = settings.rocketEnabled !== false;
+
+      const keyboardRows = [
+        [
+          { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
+          { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+        ],
+        [
+          { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+        ],
+        [{ text: "🔙 মেইন মেনু" }]
+      ];
+
       await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (Withdraw)</b>\n\nকোন মাধ্যমে টাকা উত্তোলন করতে চান? অনুগ্রহ করে নিচে থেকে একটি মাধ্যম সিলেক্ট করুন:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [
-            [{ text: "বিকাশ (bKash)" }, { text: "নগদ (Nagad)" }],
-            [{ text: "রকেট (Rocket)" }],
-            [{ text: "🔙 মেইন মেনু" }]
-          ],
+          keyboard: keyboardRows,
           resize_keyboard: true,
           one_time_keyboard: true
         }
@@ -1631,12 +1642,73 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       selectedMethod = 'Rocket';
     }
 
+    const settingsRef = doc(db, "settings", "global");
+    const settingsSnap = await getDoc(settingsRef);
+    const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+    const bkashActive = settings.bkashEnabled !== false;
+    const nagadActive = settings.nagadEnabled !== false;
+    const rocketActive = settings.rocketEnabled !== false;
+
     if (!selectedMethod) {
       await bot.sendMessage(chatId, `❌ অনুগ্রহ করে নিচের কীবোর্ড থেকে সঠিক ওয়ালেট ধরণটি বেছে নিন:`, {
         reply_markup: {
           keyboard: [
-            [{ text: "বিকাশ (bKash)" }, { text: "নগদ (Nagad)" }],
-            [{ text: "রকেট (Rocket)" }],
+            [
+              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
+              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+            ],
+            [
+              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+            ],
+            [{ text: "🔙 মেইন মেনু" }]
+          ],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    // Active method list
+    const activeMethods: string[] = [];
+    if (bkashActive) activeMethods.push("বিকাশ (bKash)");
+    if (nagadActive) activeMethods.push("নগদ (Nagad)");
+    if (rocketActive) activeMethods.push("রকেট (Rocket)");
+
+    // Check if selected method is disabled
+    let isMethodDisabled = false;
+    let disabledMethodName = "";
+    if (selectedMethod === 'bKash' && !bkashActive) {
+      isMethodDisabled = true;
+      disabledMethodName = "বিকাশ (bKash)";
+    } else if (selectedMethod === 'Nagad' && !nagadActive) {
+      isMethodDisabled = true;
+      disabledMethodName = "নগদ (Nagad)";
+    } else if (selectedMethod === 'Rocket' && !rocketActive) {
+      isMethodDisabled = true;
+      disabledMethodName = "রকেট (Rocket)";
+    }
+
+    if (isMethodDisabled) {
+      let activeText = "";
+      if (activeMethods.length === 0) {
+        activeText = "বর্তমানে সব ধরণের পেমেন্ট মাধ্যমে উত্তোলন বন্ধ রয়েছে।";
+      } else if (activeMethods.length === 1) {
+        activeText = `বর্তমানে শুধুমাত্র <b>${activeMethods[0]}</b> এর মাধ্যমে টাকা উত্তোলন চালু আছে।`;
+      } else {
+        activeText = `বর্তমানে <b>${activeMethods.join(" এবং ")}</b> এর মাধ্যমে টাকা উত্তোলন চালু আছে।`;
+      }
+
+      await bot.sendMessage(chatId, `⚠️ <b>দুঃখিত! ${disabledMethodName} উইথড্র বর্তমানে বন্ধ রয়েছে।</b>\n\n${activeText}\n\nঅনুগ্রহ করে চালু থাকা অন্য কোনো মাধ্যম বেছে নিন:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [
+              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
+              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+            ],
+            [
+              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+            ],
             [{ text: "🔙 মেইন মেনু" }]
           ],
           resize_keyboard: true

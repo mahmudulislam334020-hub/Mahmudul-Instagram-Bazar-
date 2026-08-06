@@ -51,18 +51,28 @@ export default function UserDetailsModal({
   const [adjustStatus, setAdjustStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   // Profile lookup
-  const userProfile = allProfiles.find(p => p.walletNumber === workerName || p.telegramChatId === workerName || p.payoutNumber === workerName);
+  const matchingProfiles = allProfiles.filter(p => p.walletNumber === workerName || p.telegramChatId === workerName || p.payoutNumber === workerName);
+  const userProfile = matchingProfiles[0];
   
+  const relatedIds = new Set<string>([workerName]);
+  matchingProfiles.forEach(p => {
+    if (p.walletNumber) relatedIds.add(p.walletNumber);
+    if (p.telegramChatId) relatedIds.add(p.telegramChatId);
+    if (p.payoutNumber) relatedIds.add(p.payoutNumber);
+  });
+
   // Withdrawal lookup for chat ID or wallet numbers
-  const withdrawalInfo = withdrawals.find(w => w.submittedBy === workerName || (w as any).telegramChatId === workerName);
+  const withdrawalInfo = withdrawals.find(w => relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId)));
   
-  const telegramChatId = userProfile?.telegramChatId || withdrawalInfo?.telegramChatId || (workerName.match(/^\d+$/) && !workerName.startsWith('01') ? workerName : '');
+  const telegramChatId = userProfile?.telegramChatId || (withdrawalInfo as any)?.telegramChatId || (workerName.match(/^\d+$/) && !workerName.startsWith('01') ? workerName : '');
   const payoutNumber = userProfile?.payoutNumber || userProfile?.walletNumber || withdrawalInfo?.number || '—';
   const walletType = userProfile?.walletType || withdrawalInfo?.method || 'bKash';
   const bonusBalance = userProfile?.bonusBalance || 0;
 
-  // Submissions for this worker
-  const userSubs = allSubmissions.filter(s => s.submittedBy === workerName);
+  // Submissions for this worker (matching all related IDs)
+  const userSubs = allSubmissions.filter(s => 
+    relatedIds.has(s.submittedBy) || ((s as any).telegramChatId && relatedIds.has((s as any).telegramChatId))
+  );
   const fbSubs = userSubs.filter(s => s.category === 'facebook');
   const instaSubs = userSubs.filter(s => (s.category || 'instagram') === 'instagram');
 
@@ -92,8 +102,7 @@ export default function UserDetailsModal({
 
   // Withdrawals stats for this worker
   const userWithdrawals = withdrawals.filter(w => 
-    w.submittedBy === workerName || 
-    ((w as any).telegramChatId && (w as any).telegramChatId === telegramChatId)
+    relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))
   );
 
   const approvedWithdrawals = userWithdrawals.filter(w => w.status === 'approved');

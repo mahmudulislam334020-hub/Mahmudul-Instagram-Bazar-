@@ -112,7 +112,7 @@ export default function AdminBot({
             {/* Withdraw Activation/Deactivation Option */}
             <div className="bg-slate-950/40 border border-slate-850 p-4 rounded-xl flex items-center justify-between mt-1">
               <div className="space-y-0.5">
-                <span className="text-[11px] font-bold text-slate-300 block">টাকা উত্তোলন অপশন (Withdrawal Status)</span>
+                <span className="text-[11px] font-bold text-slate-300 block">সকল টাকা উত্তোলন অপশন (Global Withdrawal Control)</span>
                 <span className="text-[10px] text-slate-500 block">
                   {settings.withdrawalsEnabled !== false 
                     ? "🟢 বর্তমানে টাকা উত্তোলন সচল রয়েছে" 
@@ -128,6 +128,85 @@ export default function AdminBot({
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.withdrawalsEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
                 />
               </button>
+            </div>
+
+            {/* Individual Method Withdrawal Controls */}
+            <div className="bg-slate-950/30 border border-slate-800/80 p-4 rounded-xl space-y-3 mt-2">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">
+                  আলাদা পেমেন্ট মেথড উইথড্র কন্ট্রোল (Individual Method Toggles)
+                </span>
+                <span className="text-[10px] text-slate-500">আলাদাভাবে মেথড বন্ধ/চালু করুন</span>
+              </div>
+
+              {/* bKash toggle */}
+              <div className="flex items-center justify-between bg-slate-950/60 p-3 rounded-lg border border-slate-800/50">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-pink-400 flex items-center gap-1.5">
+                    🌸 বিকাশ (bKash) উইথড্র
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {settings.bkashEnabled !== false 
+                      ? "🟢 বিকাশ উইথড্র চালু রয়েছে" 
+                      : "🔴 বিকাশ উইথড্র বন্ধ রয়েছে"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAppSettings(prev => ({ ...prev, bkashEnabled: prev.bkashEnabled === false ? true : false }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${settings.bkashEnabled !== false ? 'bg-pink-600' : 'bg-slate-800'}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.bkashEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+
+              {/* Nagad toggle */}
+              <div className="flex items-center justify-between bg-slate-950/60 p-3 rounded-lg border border-slate-800/50">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-orange-400 flex items-center gap-1.5">
+                    🟧 নগদ (Nagad) উইথড্র
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {settings.nagadEnabled !== false 
+                      ? "🟢 নগদ উইথড্র চালু রয়েছে" 
+                      : "🔴 নগদ উইথড্র বন্ধ রয়েছে"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAppSettings(prev => ({ ...prev, nagadEnabled: prev.nagadEnabled === false ? true : false }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${settings.nagadEnabled !== false ? 'bg-orange-600' : 'bg-slate-800'}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.nagadEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+
+              {/* Rocket toggle */}
+              <div className="flex items-center justify-between bg-slate-950/60 p-3 rounded-lg border border-slate-800/50">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+                    🚀 রকেট (Rocket) উইথড্র
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {settings.rocketEnabled !== false 
+                      ? "🟢 রকেট উইথড্র চালু রয়েছে" 
+                      : "🔴 রকেট উইথড্র বন্ধ রয়েছে"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAppSettings(prev => ({ ...prev, rocketEnabled: prev.rocketEnabled === false ? true : false }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${settings.rocketEnabled !== false ? 'bg-purple-600' : 'bg-slate-800'}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.rocketEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

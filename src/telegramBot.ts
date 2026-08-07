@@ -433,22 +433,20 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
+      inline_keyboard: [
         [
-          { text: "💼 কাজ" }
+          { text: "💼 কাজ", callback_data: "cmd_work", style: "bg_success" }
         ],
         [
-          { text: "💰 ব্যালেন্স চেক" },
-          { text: "💸 ব্যালেন্স উত্তোলন" }
+          { text: "💰 ব্যালেন্স চেক", callback_data: "cmd_balance", style: "bg_primary" },
+          { text: "💸 ব্যালেন্স উত্তোলন", callback_data: "cmd_withdraw", style: "bg_primary" }
         ],
         [
-          { text: "👥 রেফারেল লিংক" },
-          { text: "📞 সাপোর্ট" }
+          { text: "👥 রেফারেল লিংক", callback_data: "cmd_referral", style: "bg_primary" },
+          { text: "📞 সাপোর্ট", callback_data: "cmd_support", style: "bg_primary" }
         ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    }
+      ]
+    } as any
   });
 }
 
@@ -2255,16 +2253,22 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
   }
 
   // Let's redirect standard callback commands to match text inputs
-  if (data === "start_registration") {
+  if (data === "cmd_work") {
+    await handleBotMessage(bot, chatId, "💼 কাজ", callbackQuery.message);
+  } else if (data === "cmd_balance" || data === "check_balance") {
+    await handleBotMessage(bot, chatId, "💰 ব্যালেন্স চেক", callbackQuery.message);
+  } else if (data === "cmd_withdraw" || data === "withdraw_balance") {
+    await handleBotMessage(bot, chatId, "💸 ব্যালেন্স উত্তোলন", callbackQuery.message);
+  } else if (data === "cmd_referral") {
+    await handleBotMessage(bot, chatId, "👥 রেফারেল লিংক", callbackQuery.message);
+  } else if (data === "cmd_support") {
+    await handleBotMessage(bot, chatId, "📞 সাপোর্ট", callbackQuery.message);
+  } else if (data === "start_registration") {
     await handleBotMessage(bot, chatId, "📝 রেজিস্ট্রেশন করুন", callbackQuery.message);
   } else if (data === "cancel_registration") {
     await handleBotMessage(bot, chatId, "❌ বাতিল করুন", callbackQuery.message);
   } else if (data === "insta_work") {
     await handleBotMessage(bot, chatId, "📸 ইনস্টাগ্রাম টু-এফএ কাজ", callbackQuery.message);
-  } else if (data === "check_balance") {
-    await handleBotMessage(bot, chatId, "💰 ব্যালেন্স চেক", callbackQuery.message);
-  } else if (data === "withdraw_balance") {
-    await handleBotMessage(bot, chatId, "💸 ব্যালেন্স উত্তোলন", callbackQuery.message);
   } else if (data === "insta_set_2fa") {
     await handleBotMessage(bot, chatId, "🛡️ টু-এফএ সেট করুন", callbackQuery.message);
   } else if (data === "insta_complete") {

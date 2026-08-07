@@ -22,7 +22,8 @@ import {
   Database,
   List,
   Facebook,
-  ShieldCheck
+  ShieldCheck,
+  Gift
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -54,10 +55,11 @@ import {
 import AdminFacebook from './components/AdminFacebook';
 import AdminInstagram from './components/AdminInstagram';
 import AdminBot from './components/AdminBot';
+import AdminReferral from './components/AdminReferral';
 
 export default function App() {
   // Navigation & Role State
-  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_instagram' | 'admin_withdrawals' | 'admin_bot'>('admin_facebook');
+  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_instagram' | 'admin_withdrawals' | 'admin_referral' | 'admin_bot'>('admin_facebook');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -1203,10 +1205,12 @@ export default function App() {
       if (p.payoutNumber) relatedIds.add(p.payoutNumber);
     });
 
-    // Deduct both approved and pending withdrawals to lock pending amounts and prevent double-withdrawing
+    // Deduct both approved and pending main withdrawals (excluding referral withdrawals)
     const seenWithdrawalIds = new Set<string>();
     const withdrawnAmount = withdrawals
-      .filter(w => (relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))) && (w.status === 'approved' || w.status === 'pending'))
+      .filter(w => (relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))) && 
+                   (w.status === 'approved' || w.status === 'pending') &&
+                   w.balanceType !== 'referral')
       .reduce((sum, current) => {
         if (current.id && seenWithdrawalIds.has(current.id)) return sum;
         if (current.id) seenWithdrawalIds.add(current.id);
@@ -1214,6 +1218,69 @@ export default function App() {
       }, 0);
 
     return Math.max(0, totalEarned - withdrawnAmount);
+  };
+
+  const calculateUserReferralBalance = (name: string) => {
+    const matchingProfiles = allProfiles.filter(p => 
+      p.walletNumber === name || p.telegramChatId === name || p.payoutNumber === name
+    );
+
+    const relatedIds = new Set<string>([name]);
+    let rawRefEarnings = 0;
+    const processedProfiles = new Set<string>();
+
+    matchingProfiles.forEach(p => {
+      if (p.walletNumber) relatedIds.add(p.walletNumber);
+      if (p.telegramChatId) relatedIds.add(p.telegramChatId);
+      if (p.payoutNumber) relatedIds.add(p.payoutNumber);
+
+      const pKey = p.walletNumber || p.telegramChatId || p.payoutNumber;
+      if (pKey && !processedProfiles.has(pKey)) {
+        processedProfiles.add(pKey);
+        rawRefEarnings += (p.referralBalance || 0);
+      }
+    });
+
+    // Find profiles referred by this user
+    const referredProfiles = allProfiles.filter(p => p.referredBy && relatedIds.has(p.referredBy));
+    const referredUserIds = new Set<string>();
+    referredProfiles.forEach(p => {
+      if (p.walletNumber) referredUserIds.add(p.walletNumber);
+      if (p.telegramChatId) referredUserIds.add(p.telegramChatId);
+      if (p.payoutNumber) referredUserIds.add(p.payoutNumber);
+    });
+
+    // Sum approved submission earnings from referred users
+    const approvedReferredSubmissions = submissions.filter(s => 
+      s.status === 'approved' && 
+      (referredUserIds.has(s.submittedBy) || ((s as any).telegramChatId && referredUserIds.has((s as any).telegramChatId)))
+    );
+
+    const facebookRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
+    const mainRate = settings.ratePerId || 45;
+
+    const referredWorkEarnings = approvedReferredSubmissions.reduce((sum, s) => {
+      if (s.rate !== undefined && s.rate > 0) return sum + s.rate;
+      return sum + (s.category === 'facebook' ? facebookRate : mainRate);
+    }, 0);
+
+    const commissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+    const referralCommissionEarned = Math.round(referredWorkEarnings * (commissionPercent / 100));
+
+    const totalRawRefEarnings = rawRefEarnings + referralCommissionEarned;
+
+    const seenWithdrawalIds = new Set<string>();
+    const refWithdrawnAmount = withdrawals
+      .filter(w => (relatedIds.has(w.submittedBy) || ((w as any).telegramChatId && relatedIds.has((w as any).telegramChatId))) && 
+                   (w.status === 'approved' || w.status === 'pending') && 
+                   w.balanceType === 'referral')
+      .reduce((sum, current) => {
+        if (current.id && seenWithdrawalIds.has(current.id)) return sum;
+        if (current.id) seenWithdrawalIds.add(current.id);
+        return sum + current.amount;
+      }, 0);
+
+    return Math.max(0, totalRawRefEarnings - refWithdrawnAmount);
   };
 
   const handleAdjustUserBalance = async (workerName: string, amount: number) => {
@@ -1439,6 +1506,10 @@ export default function App() {
               <DollarSign size={16} />
               <span>পেমেন্ট রিকোয়েস্ট (Payouts)</span>
             </button>
+            <button onClick={() => { setActiveTab('admin_referral'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_referral' ? 'bg-amber-950 border border-amber-800/50 text-amber-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Gift size={16} className="text-amber-400" />
+              <span>রেফারেল কন্ট্রোল (Referrals)</span>
+            </button>
             <button onClick={() => { setActiveTab('admin_bot'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_bot' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <Settings size={16} />
               <span>টেলিগ্রাম বট সেটিংস (Bot)</span>
@@ -1483,6 +1554,7 @@ export default function App() {
               {activeTab === 'admin_facebook' ? 'Facebook Submissions & Control' :
                activeTab === 'admin_instagram' ? 'Instagram Submissions & Control' :
                activeTab === 'admin_withdrawals' ? 'Payouts & Withdrawals Manager' :
+               activeTab === 'admin_referral' ? 'Referral Program Control & Bonus Manager' :
                'Telegram Bot Settings & Broadcast'}
             </h2>
           </div>
@@ -1758,6 +1830,7 @@ export default function App() {
                     <thead>
                       <tr className="bg-slate-950 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-800">
                         <th className="py-4 px-6">Worker Name</th>
+                        <th className="py-4 px-4">Source</th>
                         <th className="py-4 px-4">Method</th>
                         <th className="py-4 px-4">Account Number</th>
                         <th className="py-4 px-4">Amount</th>
@@ -1769,12 +1842,21 @@ export default function App() {
                     <tbody className="divide-y divide-slate-800">
                       {withdrawals.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-10 text-center text-slate-500 text-sm">কোনো উত্তোলনের অনুরোধ নেই।</td>
+                          <td colSpan={8} className="py-10 text-center text-slate-500 text-sm">কোনো উত্তোলনের অনুরোধ নেই।</td>
                         </tr>
                       ) : (
                         withdrawals.map((w, index) => (
                           <tr key={w.id || index} className="hover:bg-slate-950/40 transition-colors">
                             <td className="py-4 px-6 text-slate-300 font-bold text-xs">{w.submittedBy}</td>
+                            <td className="py-4 px-4">
+                              <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded ${
+                                w.balanceType === 'referral'
+                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              }`}>
+                                {w.balanceType === 'referral' ? '🎁 রেফার ব্যালেন্স' : '💼 মূল ব্যালেন্স'}
+                              </span>
+                            </td>
                             <td className="py-4 px-4">
                               <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded uppercase ${
                                 w.method === 'bKash' ? 'bg-pink-600/10 text-pink-500 border border-pink-500/20' :
@@ -1909,6 +1991,18 @@ export default function App() {
                 </form>
               </motion.div>
             </div>
+          )}
+
+          {/* ADMIN: REFERRAL SYSTEM CONTROL TAB */}
+          {activeTab === 'admin_referral' && (
+            <AdminReferral
+              settings={settings}
+              setAppSettings={setAppSettings}
+              handleSaveSettings={handleSaveSettings}
+              settingsStatus={settingsStatus}
+              allProfiles={allProfiles}
+              withdrawals={withdrawals}
+            />
           )}
 
           {/* ADMIN: SYSTEM/BOT SETTINGS TAB */}
@@ -2082,8 +2176,12 @@ export default function App() {
                       <span className="text-white font-bold">৳{calculateUserTotalEarned(workerName)} Taka</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">উত্তোলনযোগ্য ব্যালেন্স (Available):</span>
+                      <span className="text-slate-400">💼 মূল ব্যালেন্স (Main Balance):</span>
                       <span className="text-emerald-400 font-extrabold">৳{calculateUserBalance(workerName)} Taka</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">👥 রেফার ব্যালেন্স (Referral Balance):</span>
+                      <span className="text-amber-400 font-extrabold">৳{calculateUserReferralBalance(workerName)} Taka</span>
                     </div>
                     <div className="flex justify-between text-xs border-t border-slate-900 pt-2 text-slate-400">
                       <span>অনুমোদিত সাবমিশন:</span>
@@ -2121,7 +2219,7 @@ export default function App() {
                       <Users size={24} />
                     </div>
                     <h3 className="text-lg font-bold text-white">🎁 রেফারেল ইনকাম প্রোগ্রাম</h3>
-                    <p className="text-xs text-slate-400 mt-1">বন্ধুদের রেফার করে আজীবনে ইনকাম করুন ১০% কমিশন!</p>
+                    <p className="text-xs text-slate-400 mt-1">বন্ধুদের রেফার করে আয় করুন প্রতি রেফারে ৳{settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : 10} Taka বোনাস!</p>
                   </div>
 
                   <div className="space-y-3">
@@ -2129,14 +2227,16 @@ export default function App() {
                       <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">আপনার ব্যক্তিগত রেফারেল লিংক</label>
                       <div className="flex gap-2">
                         <div className="flex-grow bg-slate-950 border border-slate-800 p-3 rounded-lg font-mono text-xs text-indigo-400 tracking-tight truncate select-all">
-                          https://t.me/accounttradecenterXincome_bot?start=ref_{workerName || "user"}
+                          https://t.me/{settings.botUsername || "accounttradecenterXincome_bot"}?start=ref_{allProfiles.find(p => p.walletNumber === workerName || p.telegramChatId === workerName || p.payoutNumber === workerName)?.telegramChatId || workerName || "user"}
                         </div>
                         <button 
                           onClick={() => {
-                            navigator.clipboard.writeText(`https://t.me/accounttradecenterXincome_bot?start=ref_${workerName || "user"}`);
+                            const userRefId = allProfiles.find(p => p.walletNumber === workerName || p.telegramChatId === workerName || p.payoutNumber === workerName)?.telegramChatId || workerName || "user";
+                            const link = `https://t.me/${settings.botUsername || "accounttradecenterXincome_bot"}?start=ref_${userRefId}`;
+                            navigator.clipboard.writeText(link);
                             alert("রেফার লিংক কপি হয়েছে!");
                           }}
-                          className="px-3 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-white"
+                          className="px-3 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-white cursor-pointer"
                         >
                           Copy
                         </button>
@@ -2144,11 +2244,15 @@ export default function App() {
                     </div>
 
                     <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-2 text-xs leading-relaxed text-slate-300">
+                      <div className="flex justify-between items-center border-b border-slate-900 pb-2">
+                        <span className="text-slate-400">💵 বর্তমান রেফার ব্যালেন্স:</span>
+                        <span className="text-amber-400 font-extrabold text-sm">৳{calculateUserReferralBalance(workerName)} Taka</span>
+                      </div>
                       <p>📢 <b>কমিশন পলিসি:</b></p>
                       <ul className="list-disc pl-4 space-y-1 text-slate-400">
-                        <li>আপনার রেফার লিংকে ক্লিক করে কেউ আমাদের টেলিগ্রাম বটে জয়েন হলে সে আপনার রেফার হবে।</li>
-                        <li>সে যতগুলো সঠিক আইডি তৈরি করে সাবমিট করবে, প্রতি আইডির জন্য আপনি পাবেন ১০% অতিরিক্ত বোনাস কমিশন!</li>
-                        <li>এটি একটি আনলিমিটেড আজীবন অফার, রেফার করুন বেশি এবং আয় করুন দ্বিগুণ!</li>
+                        <li>আপনার রেফারেল লিংকটি বন্ধুদের সাথে শেয়ার করুন।</li>
+                        <li>তারা এই লিংকে ক্লিক করে বটে জয়েন করলে প্রতি রেফারে আপনার রেফার ব্যালেন্সে ৳{settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : 10} টাকা যোগ হবে।</li>
+                        <li>রেফার ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳{settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500} টাকা হতে হবে।</li>
                       </ul>
                     </div>
                   </div>

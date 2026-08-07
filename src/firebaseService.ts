@@ -1,4 +1,5 @@
 import { db } from "./firebase";
+export { db };
 import { 
   collection, 
   addDoc, 
@@ -41,6 +42,7 @@ export interface Withdrawal {
   submittedBy: string;
   telegramChatId?: string;
   transactionId?: string;
+  balanceType?: "main" | "referral";
 }
 
 export interface AppSettings {
@@ -61,17 +63,26 @@ export interface AppSettings {
   bkashEnabled?: boolean;
   nagadEnabled?: boolean;
   rocketEnabled?: boolean;
+  referralBonusAmount?: number;
+  referralCommissionPercent?: number;
+  minReferralWithdrawLimit?: number;
+  referralSystemEnabled?: boolean;
+  botUsername?: string;
   webhookUrl?: string;
   forceJoinGroup?: string;
   forceJoinMethodChannel?: string;
 }
 
 export interface UserProfile {
+  id?: string;
   walletNumber: string;
   walletType: "bKash" | "Nagad" | "Rocket";
   createdAt: string;
   telegramChatId?: string;
   bonusBalance?: number;
+  referralBalance?: number;
+  referredBy?: string;
+  totalReferrals?: number;
   accumulatedApprovedEarnings?: number;
   payoutNumber?: string;
 }
@@ -114,7 +125,11 @@ const getFallbackSettings = (): AppSettings => {
     withdrawalsEnabled: true,
     bkashEnabled: true,
     nagadEnabled: true,
-    rocketEnabled: true
+    rocketEnabled: true,
+    referralBonusAmount: 10,
+    minReferralWithdrawLimit: 500,
+    referralSystemEnabled: true,
+    botUsername: ""
   };
 };
 
@@ -411,7 +426,7 @@ export async function getAllUserProfiles(): Promise<UserProfile[]> {
     const querySnapshot = await withTimeout(getDocs(q), 2500);
     const result: UserProfile[] = [];
     querySnapshot.forEach((doc) => {
-      result.push(doc.data() as UserProfile);
+      result.push({ id: doc.id, ...doc.data() } as UserProfile);
     });
     return result;
   } catch (error) {

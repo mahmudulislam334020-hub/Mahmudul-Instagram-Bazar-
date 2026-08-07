@@ -98,16 +98,73 @@ export default function AdminBot({
         </div>
 
         <form onSubmit={handleSaveSettings} className="space-y-4 pt-2">
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Minimum Withdraw Limit (Taka)</label>
+              <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">মূল ব্যালেন্স সর্বনিম্ন উইথড্র (Min Main Withdraw - ৳)</label>
               <input 
                 type="number"
-                value={settings.minWithdraw || 50}
+                value={settings.minWithdraw !== undefined ? settings.minWithdraw : 50}
                 onChange={(e) => setAppSettings(prev => ({ ...prev, minWithdraw: parseFloat(e.target.value) || 0 }))}
                 className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-slate-300 text-sm outline-none focus:border-indigo-500 transition-all"
               />
             </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">রেফার ব্যালেন্স সর্বনিম্ন উইথড্র সীমা (Min Referral Withdraw Limit - ৳)</label>
+              <input 
+                type="number"
+                value={settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500}
+                onChange={(e) => setAppSettings(prev => ({ ...prev, minReferralWithdrawLimit: parseFloat(e.target.value) || 0 }))}
+                className="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-lg text-amber-300 font-semibold text-sm outline-none focus:border-indigo-500 transition-all"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                যেমন: ৫০০ বা ১০০০ টাকা। এই পরিমাণ না হওয়া পর্যন্ত রেফার ব্যালেন্স তোলা যাবে না।
+              </p>
+            </div>
+          </div>
+
+          {/* Referral Settings Section */}
+          <div className="bg-slate-950/40 border border-indigo-900/40 p-4 rounded-xl space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block flex items-center gap-1.5">
+                🎁 রেফারেল প্রোগ্রাম সেটিংস (Referral System)
+              </span>
+              <button
+                type="button"
+                onClick={() => setAppSettings(prev => ({ ...prev, referralSystemEnabled: prev.referralSystemEnabled === false ? true : false }))}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${settings.referralSystemEnabled !== false ? 'bg-amber-600' : 'bg-slate-800'}`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.referralSystemEnabled !== false ? 'translate-x-5' : 'translate-x-0'}`}
+                />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">প্রতি রেফারে বোনাস (Referral Bonus Amount - ৳)</label>
+                <input 
+                  type="number"
+                  placeholder="e.g. 10"
+                  value={settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : 10}
+                  onChange={(e) => setAppSettings(prev => ({ ...prev, referralBonusAmount: parseFloat(e.target.value) || 0 }))}
+                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2.5 rounded-lg text-slate-200 text-xs outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">টেলিগ্রাম বট ইউজারনেম (Bot Username - @ ছাড়া)</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. MyWorkerBot"
+                  value={settings.botUsername || ''}
+                  onChange={(e) => setAppSettings(prev => ({ ...prev, botUsername: e.target.value.replace('@', '').trim() }))}
+                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2.5 rounded-lg text-slate-200 text-xs outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[9px] text-slate-500 mt-0.5">রেফারেল লিংক তৈরির কাজে ব্যবহৃত হবে (যেমন t.me/MyBotUsername)</p>
+              </div>
+            </div>
+          </div>
 
             {/* Withdraw Activation/Deactivation Option */}
             <div className="bg-slate-950/40 border border-slate-850 p-4 rounded-xl flex items-center justify-between mt-1">
@@ -208,7 +265,6 @@ export default function AdminBot({
                 </button>
               </div>
             </div>
-          </div>
 
           {/* Telegram token */}
           <div>

@@ -28,6 +28,7 @@ interface BotState {
   step: 
     | 'main_menu' 
     | 'awaiting_instagram_2fa_key' 
+    | 'awaiting_withdraw_balance_type'
     | 'awaiting_withdraw_method'
     | 'awaiting_withdraw_number'
     | 'awaiting_withdraw_amount'
@@ -43,6 +44,7 @@ interface BotState {
     promptMsgId?: number;     // Message requesting 2FA or displaying TOTP
   };
   withdrawData?: {
+    balanceType?: 'main' | 'referral';
     method?: 'bKash' | 'Nagad' | 'Rocket';
     number?: string;
   };
@@ -319,24 +321,88 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
 
   const withdrawals = Array.from(uniqueWithdrawals.values());
 
-  const approvedWithdrawn = withdrawals
-    .filter(w => w.status === "approved")
+  // Fetch referral stats & commission from ALL matching user profiles in Firestore
+  let rawReferralBalance = 0;
+  let totalReferrals = 0;
+  const processedRefProfiles = new Set<string>();
+
+  matchingProfiles.forEach(p => {
+    const pKey = p.walletNumber || p.telegramChatId || p.payoutNumber;
+    if (pKey && !processedRefProfiles.has(pKey)) {
+      processedRefProfiles.add(pKey);
+      rawReferralBalance += (p.referralBalance || 0);
+      totalReferrals += (p.totalReferrals || 0);
+    }
+  });
+
+  // Calculate percentage commission earned from referred users' approved work
+  let referredWorkEarnings = 0;
+  const referralCommissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+
+  for (const sid of Array.from(searchIds)) {
+    if (!sid) continue;
+    try {
+      const refUsersQuery = query(profilesRef, where("referredBy", "==", sid));
+      const refUsersSnap = await getDocs(refUsersQuery);
+      
+      for (const refDoc of refUsersSnap.docs) {
+        const refUserData = refDoc.data();
+        const refUserIds = new Set<string>();
+        if (refUserData.telegramChatId) refUserIds.add(String(refUserData.telegramChatId));
+        if (refUserData.walletNumber) refUserIds.add(refUserData.walletNumber);
+        if (refUserData.payoutNumber) refUserIds.add(refUserData.payoutNumber);
+
+        for (const rId of Array.from(refUserIds)) {
+          if (!rId) continue;
+          const refSubQuery = query(submissionsRef, where("submittedBy", "==", rId), where("status", "==", "approved"));
+          const refSubSnap = await getDocs(refSubQuery);
+          refSubSnap.forEach(sDoc => {
+            const sData = sDoc.data();
+            const sRate = sData.rate !== undefined ? sData.rate : (sData.category === 'facebook' ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45));
+            referredWorkEarnings += sRate;
+          });
+        }
+      }
+    } catch (refErr) {
+      console.error("Error calculating referral commission:", refErr);
+    }
+  }
+
+  const referralCommissionEarned = Math.round(referredWorkEarnings * (referralCommissionPercent / 100));
+  const totalRawReferralBalance = rawReferralBalance + referralCommissionEarned;
+
+  const approvedMainWithdrawn = withdrawals
+    .filter(w => w.status === "approved" && w.balanceType !== "referral")
     .reduce((sum, current) => sum + current.amount, 0);
 
-  const pendingWithdrawn = withdrawals
-    .filter(w => w.status === "pending")
+  const pendingMainWithdrawn = withdrawals
+    .filter(w => w.status === "pending" && w.balanceType !== "referral")
     .reduce((sum, current) => sum + current.amount, 0);
 
-  const balance = Math.max(0, totalEarned - approvedWithdrawn - pendingWithdrawn);
+  const approvedReferralWithdrawn = withdrawals
+    .filter(w => w.status === "approved" && w.balanceType === "referral")
+    .reduce((sum, current) => sum + current.amount, 0);
+
+  const pendingReferralWithdrawn = withdrawals
+    .filter(w => w.status === "pending" && w.balanceType === "referral")
+    .reduce((sum, current) => sum + current.amount, 0);
+
+  const mainBalance = Math.max(0, totalEarned - approvedMainWithdrawn - pendingMainWithdrawn);
+  const referralBalance = Math.max(0, totalRawReferralBalance - approvedReferralWithdrawn - pendingReferralWithdrawn);
 
   return {
     approvedCount,
     pendingCount,
     rejectedCount,
     totalEarned,
-    approvedWithdrawn,
-    pendingWithdrawn,
-    balance,
+    approvedWithdrawn: approvedMainWithdrawn,
+    pendingWithdrawn: pendingMainWithdrawn,
+    approvedReferralWithdrawn,
+    pendingReferralWithdrawn,
+    balance: mainBalance,
+    referralBalance,
+    rawReferralBalance,
+    totalReferrals,
     ratePerId
   };
 }
@@ -376,6 +442,7 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
           { text: "💸 ব্যালেন্স উত্তোলন" }
         ],
         [
+          { text: "👥 রেফারেল লিংক" },
           { text: "📞 সাপোর্ট" }
         ]
       ],
@@ -722,8 +789,17 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     
     const parts = text.split(" ");
     let linkedWallet = "";
-    if (parts.length > 1 && parts[1].startsWith("wallet_")) {
-      linkedWallet = parts[1].replace("wallet_", "").trim();
+    let referrerChatId = "";
+
+    if (parts.length > 1) {
+      const param = parts[1].trim();
+      if (param.startsWith("wallet_")) {
+        linkedWallet = param.replace("wallet_", "").trim();
+      } else if (param.startsWith("ref_")) {
+        referrerChatId = param.replace("ref_", "").trim();
+      } else if (/^\d+$/.test(param) && param.length !== 11) {
+        referrerChatId = param;
+      }
     }
 
     const profilesRef = collection(db, "profiles");
@@ -771,18 +847,66 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
+      // Process referral tracking if referred by another user
+      let referredByVal = "";
+      if (referrerChatId && referrerChatId !== String(chatId)) {
+        try {
+          const settingsRef = doc(db, "settings", "global");
+          const settingsSnap = await getDoc(settingsRef);
+          const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+
+          if (settings.referralSystemEnabled !== false) {
+            const refQ = query(profilesRef, where("telegramChatId", "==", referrerChatId), limit(1));
+            const refSnap = await getDocs(refQ);
+
+            if (!refSnap.empty) {
+              const refDoc = refSnap.docs[0];
+              const refData = refDoc.data();
+              const commissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+              const newTotalRef = (refData.totalReferrals || 0) + 1;
+
+              await updateDoc(refDoc.ref, { 
+                totalReferrals: newTotalRef 
+              });
+
+              referredByVal = referrerChatId;
+
+              try {
+                await bot.sendMessage(
+                  Number(referrerChatId),
+                  `🎉 <b>নতুন রেফারেল জয়েন করেছে!</b>\n\n` +
+                  `আপনার রেফারেল লিংকের মাধ্যমে একজন নতুন মেম্বার টেলিগ্রাম বটে যুক্ত হয়েছেন।\n\n` +
+                  `👥 <b>আপনার মোট রেফারেল:</b> <b>${newTotalRef}</b> জন\n` +
+                  `🎁 <b>কমিশন সুবিধা:</b> তিনি কাজ জমা দিয়ে অ্যাকাউন্টে কাজ Approved হলেই প্রতিটি কাজ থেকে আপনি পাবেন <b>${commissionPercent}% কমিশন</b>!`,
+                  { parse_mode: "HTML" }
+                );
+              } catch (notifyErr) {
+                console.warn("Could not send referral notification to referrer:", notifyErr);
+              }
+            }
+          }
+        } catch (refErr) {
+          console.error("Error processing referral tracking:", refErr);
+        }
+      }
+
       // Auto-create profile
-      await addDoc(profilesRef, {
+      const newProfileData: any = {
         telegramChatId: String(chatId),
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
         walletNumber: "",
-        walletType: ""
-      });
+        walletType: "",
+        referralBalance: 0,
+        totalReferrals: 0
+      };
+      if (referredByVal) {
+        newProfileData.referredBy = referredByVal;
+      }
+
+      await addDoc(profilesRef, newProfileData);
       userStates.set(chatId, { step: "main_menu" });
       await bot.sendMessage(chatId, "🎉 স্বাগতম! আপনার প্রোফাইল তৈরি হয়েছে।");
-      
-      const newProfile = { telegramChatId: String(chatId), walletNumber: "", walletType: "" };
-      await showMainMenu(bot, chatId, newProfile);
+      await showMainMenu(bot, chatId, newProfileData);
     } else {
       const profile = querySnapshot.docs[0].data();
       userStates.set(chatId, { step: "main_menu" });
@@ -1048,15 +1172,18 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (text === "💰 ব্যালেন্স চেক") {
       const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
       let balanceText = `💰 <b>আপনার ব্যালেন্স তথ্য:</b>\n\n` +
-                          `💵 <b>উত্তোলনযোগ্য ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n\n` +
+                          `💼 <b>মূল ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n` +
+                          `👥 <b>রেফার ব্যালেন্স:</b> ৳<b>${stats.referralBalance}</b> Taka\n\n` +
                           `✅ <b>অনুমোদিত আইডি:</b> ${stats.approvedCount} টি (৳${stats.totalEarned})\n` +
                           `⏳ <b>পেন্ডিং আইডি:</b> ${stats.pendingCount} টি\n` +
                           `❌ <b>বাতিল আইডি:</b> ${stats.rejectedCount} টি\n\n` +
-                          `💸 <b>মোট উইথড্র করেছেন:</b> ৳${stats.approvedWithdrawn} Taka\n` +
-                          `🕒 <b>পেন্ডিং উইথড্র:</b> ৳${stats.pendingWithdrawn} Taka`;
+                          `🎁 <b>মোট রেফার করেছেন:</b> ${stats.totalReferrals} জন\n` +
+                          `💸 <b>মূল ব্যালেন্স উত্তোলন:</b> ৳${stats.approvedWithdrawn} Taka\n` +
+                          `💸 <b>রেফার ব্যালেন্স উত্তোলন:</b> ৳${stats.approvedReferralWithdrawn} Taka\n` +
+                          `🕒 <b>পেন্ডিং উইথড্র:</b> ৳${stats.pendingWithdrawn + stats.pendingReferralWithdrawn} Taka`;
 
       if (stats.pendingCount > 0) {
-        balanceText += `\n\n⚠️ <b>নোট:</b> আপনার <b>${stats.pendingCount}টি</b> পেন্ডিং আইডি এডমিন রিভিউর পর এপ্রুভ হলে আপনার উইথড্রযোগ্য ব্যালেন্সে আরও ৳<b>${stats.pendingCount * stats.ratePerId}</b> Taka যোগ হবে।`;
+        balanceText += `\n\n⚠️ <b>নোট:</b> আপনার <b>${stats.pendingCount}টি</b> পেন্ডিং আইডি এডমিন রিভিউর পর এপ্রুভ হলে আপনার মূল ব্যালেন্সে আরও ৳<b>${stats.pendingCount * stats.ratePerId}</b> Taka যোগ হবে।`;
       }
 
       await bot.sendMessage(chatId, balanceText, {
@@ -1065,7 +1192,42 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           keyboard: [
             [{ text: "💼 কাজ" }],
             [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-            [{ text: "📞 সাপোর্ট" }]
+            [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+          ],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    if (text === "👥 রেফারেল লিংক") {
+      const settingsRef = doc(db, "settings", "global");
+      const settingsSnap = await getDoc(settingsRef);
+      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+      
+      const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+      const botUsername = settings.botUsername || "accounttradecenterXincome_bot";
+      const commissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+      const minRefLimit = settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500;
+
+      const refLink = `https://t.me/${botUsername}?start=ref_${chatId}`;
+
+      const refMsg = `🎁 <b>আপনার পার্সোনাল রেফারেল লিংক:</b>\n\n` +
+                     `<code>${refLink}</code>\n\n` +
+                     `🔗 <b>যেভাবে কাজ করে:</b>\n` +
+                     `আপনার রেফারেল লিংকটি বন্ধুদের সাথে শেয়ার করুন। তারা এই লিংকে ক্লিক করে বটে জয়েন করার পর কাজ জমা দিলে এবং কাজ Approved হলে প্রতিটি কাজ থেকে আপনি পাবেন <b>${commissionPercent}% কমিশন</b>!\n\n` +
+                     `📊 <b>আপনার রেফারেল পরিসংখ্যান:</b>\n` +
+                     `👥 <b>মোট রেফার করেছেন:</b> <b>${stats.totalReferrals}</b> জন\n` +
+                     `💵 <b>বর্তমান রেফার ব্যালেন্স:</b> ৳<b>${stats.referralBalance}</b> Taka\n\n` +
+                     `⚠️ <i>নোট: রেফার ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳<b>${minRefLimit}</b> টাকা রেফার ব্যালেন্স থাকতে হবে।</i>`;
+
+      await bot.sendMessage(chatId, refMsg, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [{ text: "💼 কাজ" }],
+            [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+            [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
           ],
           resize_keyboard: true
         }
@@ -1085,7 +1247,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
             keyboard: [
               [{ text: "💼 কাজ" }],
               [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "📞 সাপোর্ট" }]
+              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
             ],
             resize_keyboard: true
           }
@@ -1095,14 +1257,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 
-      if (stats.pendingWithdrawn > 0) {
+      if ((stats.pendingWithdrawn + stats.pendingReferralWithdrawn) > 0) {
         await bot.sendMessage(chatId, `⚠️ <b>আপনার একটি উইথড্রয়াল অনুরোধ বর্তমানে পেন্ডিং রয়েছে!</b>\n\nসেটি সফল বা বাতিল হওয়ার আগে নতুন কোনো উইথড্র দিতে পারবেন না। পূর্বের উইথড্রটি সফল বা বাতিল হলে পুনরায় নতুন অনুরোধ করতে পারবেন। ধন্যবাদ!`, {
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
               [{ text: "💼 কাজ" }],
               [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "📞 সাপোর্ট" }]
+              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
             ],
             resize_keyboard: true
           }
@@ -1110,48 +1272,23 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
-      const minWithdrawLimit = settings.minWithdraw !== undefined ? settings.minWithdraw : 50;
-
-      if (stats.balance < minWithdrawLimit) {
-        await bot.sendMessage(chatId, `❌ <b>দুঃখিত!</b>\n\nটাকা তুলতে আপনার ব্যালেন্সে সর্বনিম্ন ৳<b>${minWithdrawLimit}</b> Taka থাকতে হবে।\nবর্তমানে আপনার ব্যালেন্স: ৳<b>${stats.balance}</b> Taka।`, {
-          parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "📞 সাপোর্ট" }]
-            ],
-            resize_keyboard: true
-          }
-        });
-        return;
-      }
-
-      state.step = "awaiting_withdraw_method";
+      state.step = "awaiting_withdraw_balance_type";
       state.withdrawData = {};
       userStates.set(chatId, state);
 
-      const bkashActive = settings.bkashEnabled !== false;
-      const nagadActive = settings.nagadEnabled !== false;
-      const rocketActive = settings.rocketEnabled !== false;
-
       const keyboardRows = [
         [
-          { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
-          { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
-        ],
-        [
-          { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+          { text: `💼 মূল ব্যালেন্স (৳${stats.balance})` },
+          { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})` }
         ],
         [{ text: "🔙 মেইন মেনু" }]
       ];
 
-      await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (Withdraw)</b>\n\nকোন মাধ্যমে টাকা উত্তোলন করতে চান? অনুগ্রহ করে নিচে থেকে একটি মাধ্যম সিলেক্ট করুন:`, {
+      await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (Withdrawal)</b>\n\nআপনি কোন ব্যালেন্স থেকে টাকা উত্তোলন করতে চান? নিচে থেকে নির্বাচন করুন:\n\n💼 <b>মূল ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n👥 <b>রেফার ব্যালেন্স:</b> ৳<b>${stats.referralBalance}</b> Taka`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: keyboardRows,
-          resize_keyboard: true,
-          one_time_keyboard: true
+          resize_keyboard: true
         }
       });
       return;
@@ -1623,6 +1760,115 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     return;
   }
 
+  // --- Step: Awaiting Withdraw Balance Type ---
+  if (state.step === "awaiting_withdraw_balance_type") {
+    if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.withdrawData = undefined;
+      userStates.set(chatId, state);
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    const settingsRef = doc(db, "settings", "global");
+    const settingsSnap = await getDoc(settingsRef);
+    const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+    const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+
+    let chosenType: 'main' | 'referral' | null = null;
+    if (text.includes("মূল ব্যালেন্স") || text.toLowerCase().includes("main")) {
+      chosenType = 'main';
+    } else if (text.includes("রেফার ব্যালেন্স") || text.toLowerCase().includes("referral")) {
+      chosenType = 'referral';
+    }
+
+    if (!chosenType) {
+      await bot.sendMessage(chatId, `❌ অনুগ্রহ করে নিচের কীবোর্ড থেকে কোনো একটি ব্যালেন্স বেছে নিন:`, {
+        reply_markup: {
+          keyboard: [
+            [
+              { text: `💼 মূল ব্যালেন্স (৳${stats.balance})` },
+              { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})` }
+            ],
+            [{ text: "🔙 মেইন মেনু" }]
+          ],
+          resize_keyboard: true
+        }
+      });
+      return;
+    }
+
+    if (chosenType === 'main') {
+      const minW = settings.minWithdraw !== undefined ? settings.minWithdraw : 50;
+      if (stats.balance < minW) {
+        await bot.sendMessage(chatId, `❌ <b>দুঃখিত! মূল ব্যালেন্স উত্তোলনের সীমা পূরণ হয়নি।</b>\n\nমূল ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳<b>${minW}</b> Taka থাকতে হবে।\nবর্তমানে আপনার মূল ব্যালেন্স: ৳<b>${stats.balance}</b> Taka।`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "💼 কাজ" }],
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+            ],
+            resize_keyboard: true
+          }
+        });
+        state.step = "main_menu";
+        state.withdrawData = undefined;
+        userStates.set(chatId, state);
+        return;
+      }
+    } else if (chosenType === 'referral') {
+      const minRefW = settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500;
+      if (stats.referralBalance < minRefW) {
+        await bot.sendMessage(chatId, `❌ <b>দুঃখিত! রেফার ব্যালেন্স উত্তোলনের সীমা পূরণ হয়নি।</b>\n\nরেফার ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳<b>${minRefW}</b> Taka থাকতে হবে।\nবর্তমানে আপনার রেফার ব্যালেন্স: ৳<b>${stats.referralBalance}</b> Taka।\n\n💡 আপনার বন্ধুরা বটে জয়েন করলে পাবেন আকর্ষণীয় রেফার বোনাস!`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "💼 কাজ" }],
+              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
+              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+            ],
+            resize_keyboard: true
+          }
+        });
+        state.step = "main_menu";
+        state.withdrawData = undefined;
+        userStates.set(chatId, state);
+        return;
+      }
+    }
+
+    state.withdrawData = { balanceType: chosenType };
+    state.step = "awaiting_withdraw_method";
+    userStates.set(chatId, state);
+
+    const bkashActive = settings.bkashEnabled !== false;
+    const nagadActive = settings.nagadEnabled !== false;
+    const rocketActive = settings.rocketEnabled !== false;
+
+    const keyboardRows = [
+      [
+        { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
+        { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+      ],
+      [
+        { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+      ],
+      [{ text: "🔙 মেইন মেনু" }]
+    ];
+
+    const typeTitle = chosenType === 'referral' ? '👥 রেফার ব্যালেন্স' : '💼 মূল ব্যালেন্স';
+    await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (${typeTitle})</b>\n\nকোন মাধ্যমে টাকা উত্তোলন করতে চান? অনুগ্রহ করে নিচে থেকে একটি মাধ্যমে ক্লিক করুন:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: keyboardRows,
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
+    return;
+  }
+
   // --- Step: Awaiting Withdraw Method ---
   if (state.step === "awaiting_withdraw_method") {
     if (text === "🔙 মেইন মেনু" || text === "❌ বাতিল করুন") {
@@ -1717,7 +1963,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    state.withdrawData = { method: selectedMethod };
+    state.withdrawData = { ...state.withdrawData, method: selectedMethod };
     state.step = "awaiting_withdraw_number";
     userStates.set(chatId, state);
 
@@ -1787,9 +2033,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+    const isReferral = state.withdrawData?.balanceType === 'referral';
+    const currentBal = isReferral ? stats.referralBalance : stats.balance;
+    const typeLabel = isReferral ? 'রেফার ব্যালেন্স' : 'উত্তোলনযোগ্য মূল ব্যালেন্স';
 
     await bot.sendMessage(chatId, `📱 <b>নাম্বার সেট হয়েছে:</b> <code>${walletNum}</code> (${state.withdrawData.method})\n` +
-                                 `💵 <b>উত্তোলনযোগ্য ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n\n` +
+                                 `💵 <b>আপনার ${typeLabel}:</b> ৳<b>${currentBal}</b> Taka\n\n` +
                                  `💰 আপনি কত টাকা উত্তোলন করতে চান? অনুগ্রহ করে শুধুমাত্র সংখ্যায় পরিমাণটি লিখে পাঠান (যেমন: ৫০০):`, {
       parse_mode: "HTML",
       reply_markup: {
@@ -1835,9 +2084,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    const minWithdrawLimit = settings.minWithdraw !== undefined ? settings.minWithdraw : 50;
+    const isReferral = state.withdrawData?.balanceType === 'referral';
+    const minWithdrawLimit = isReferral 
+      ? (settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500)
+      : (settings.minWithdraw !== undefined ? settings.minWithdraw : 50);
+
     if (amount < minWithdrawLimit) {
-      await bot.sendMessage(chatId, `❌ <b>কম পরিমাণের উইথড্র!</b>\n\nএডমিন সেট করা সর্বনিম্ন উইথড্র পরিমাণ হলো ৳<b>${minWithdrawLimit}</b> Taka। আপনার প্রদানকৃত পরিমাণ: ৳<b>${amount}</b> Taka।\n\nঅনুগ্রহ করে ৳<b>${minWithdrawLimit}</b> Taka বা তার বেশি পরিমাণ লিখে পাঠান:`, {
+      await bot.sendMessage(chatId, `❌ <b>কম পরিমাণের উইথড্র!</b>\n\n${isReferral ? 'রেফার' : 'মূল'} ব্যালেন্স থেকে সর্বনিম্ন উইথড্র পরিমাণ হলো ৳<b>${minWithdrawLimit}</b> Taka। আপনার প্রদানকৃত পরিমাণ: ৳<b>${amount}</b> Taka।\n\nঅনুগ্রহ করে ৳<b>${minWithdrawLimit}</b> Taka বা তার বেশি পরিমাণ লিখে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [[{ text: "🔙 মেইন মেনু" }]],
@@ -1848,9 +2101,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
+    const availableBal = isReferral ? stats.referralBalance : stats.balance;
 
-    if (amount > stats.balance) {
-      await bot.sendMessage(chatId, `❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nউইথড্রযোগ্য ব্যালেন্স: ৳${stats.balance} Taka`, {
+    if (amount > availableBal) {
+      await bot.sendMessage(chatId, `❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nআপনার সর্বোচ্চ উইথড্রযোগ্য ${isReferral ? 'রেফার' : 'মূল'} ব্যালেন্স: ৳${availableBal} Taka`, {
         reply_markup: {
           keyboard: [[{ text: "🔙 মেইন মেনু" }]],
           resize_keyboard: true
@@ -1862,11 +2116,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     // Save withdrawal
     const method = state.withdrawData?.method || 'bKash';
     const num = state.withdrawData?.number || '';
+    const balanceType = state.withdrawData?.balanceType || 'main';
     const userIdOrWallet = profile.walletNumber || String(chatId);
     const newW = {
       method: method,
       number: num,
       amount: amount,
+      balanceType: balanceType,
       status: 'pending',
       createdAt: new Date().toISOString(),
       submittedBy: userIdOrWallet,
@@ -1878,6 +2134,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     // Notify Admin via Telegram
     const adminText = `💸 <b>নতুন পেমেন্ট উইথড্র অনুরোধ (Bot)</b> 💸\n\n` +
                       `👤 <b>ইউজার চ্যাট আইডি:</b> <code>${chatId}</code>\n` +
+                      `🏷️ <b>উৎস:</b> ${balanceType === 'referral' ? '🎁 রেফার ব্যালেন্স' : '💼 মূল ব্যালেন্স'}\n` +
                       `🏦 <b>মাধ্যম:</b> ${method}\n` +
                       `📱 <b>অ্যাকাউন্ট:</b> <code>${num}</code>\n` +
                       `💵 <b>পরিমাণ:</b> ৳${amount} Taka\n` +
@@ -1895,6 +2152,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     await bot.sendMessage(
       chatId,
       `✅ <b>উত্তোলন অনুরোধ সফলভাবে জমা হয়েছে!</b>\n\n` +
+      `🏷️ <b>উৎস:</b> ${balanceType === 'referral' ? '🎁 রেফার ব্যালেন্স' : '💼 মূল ব্যালেন্স'}\n` +
       `💵 <b>পরিমাণ:</b> ৳<b>${amount}</b> Taka\n` +
       `🏦 <b>ওয়ালেট:</b> <code>${num}</code> (${method})\n\n` +
       `⚡ <b>চার্জের বিবরণ:</b>\n` +

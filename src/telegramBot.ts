@@ -433,22 +433,20 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
+      inline_keyboard: [
         [
-          { text: "💼 কাজ" }
+          { text: "💼 কাজ", callback_data: "cmd_work", style: "bg_success" }
         ],
         [
-          { text: "💰 ব্যালেন্স চেক" },
-          { text: "💸 ব্যালেন্স উত্তোলন" }
+          { text: "💰 ব্যালেন্স চেক", callback_data: "cmd_balance", style: "bg_primary" },
+          { text: "💸 ব্যালেন্স উত্তোলন", callback_data: "cmd_withdraw", style: "bg_success" }
         ],
         [
-          { text: "👥 রেফারেল লিংক" },
-          { text: "📞 সাপোর্ট" }
+          { text: "👥 রেফারেল লিংক", callback_data: "cmd_referral", style: "bg_primary" },
+          { text: "📞 সাপোর্ট", callback_data: "cmd_support", style: "bg_primary" }
         ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    }
+      ]
+    } as any
   });
 }
 
@@ -459,18 +457,16 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
+      inline_keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রামের কাজ" },
-          { text: "👥 ফেসবুকের কাজ" }
+          { text: "📸 ইনস্টাগ্রামের কাজ", callback_data: "cmd_insta_work", style: "bg_success" },
+          { text: "👥 ফেসবুকের কাজ", callback_data: "cmd_fb_work", style: "bg_primary" }
         ],
         [
-          { text: "🔙 মেইন মেনু" }
+          { text: "🔙 মেইন মেনু", callback_data: "cmd_main_menu", style: "bg_danger" }
         ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    }
+      ]
+    } as any
   });
 }
 
@@ -2255,7 +2251,23 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
   }
 
   // Let's redirect standard callback commands to match text inputs
-  if (data === "start_registration") {
+  if (data === "cmd_work") {
+    await handleBotMessage(bot, chatId, "💼 কাজ", callbackQuery.message);
+  } else if (data === "cmd_balance" || data === "check_balance") {
+    await handleBotMessage(bot, chatId, "💰 ব্যালেন্স চেক", callbackQuery.message);
+  } else if (data === "cmd_withdraw" || data === "withdraw_balance") {
+    await handleBotMessage(bot, chatId, "💸 ব্যালেন্স উত্তোলন", callbackQuery.message);
+  } else if (data === "cmd_referral") {
+    await handleBotMessage(bot, chatId, "👥 রেফারেল লিংক", callbackQuery.message);
+  } else if (data === "cmd_support") {
+    await handleBotMessage(bot, chatId, "📞 সাপোর্ট", callbackQuery.message);
+  } else if (data === "cmd_insta_work") {
+    await handleBotMessage(bot, chatId, "📸 ইনস্টাগ্রামের কাজ", callbackQuery.message);
+  } else if (data === "cmd_fb_work") {
+    await handleBotMessage(bot, chatId, "👥 ফেসবুকের কাজ", callbackQuery.message);
+  } else if (data === "cmd_main_menu" || data === "back_to_main_menu") {
+    await handleBotMessage(bot, chatId, "🔙 মেইন মেনু", callbackQuery.message);
+  } else if (data === "start_registration") {
     await handleBotMessage(bot, chatId, "📝 রেজিস্ট্রেশন করুন", callbackQuery.message);
   } else if (data === "cancel_registration") {
     await handleBotMessage(bot, chatId, "❌ বাতিল করুন", callbackQuery.message);

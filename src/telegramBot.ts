@@ -433,20 +433,22 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [
+      keyboard: [
         [
-          { text: "💼 কাজ", callback_data: "cmd_work", style: "bg_success" }
+          { text: "💼 কাজ" }
         ],
         [
-          { text: "💰 ব্যালেন্স চেক", callback_data: "cmd_balance", style: "bg_primary" },
-          { text: "💸 ব্যালেন্স উত্তোলন", callback_data: "cmd_withdraw", style: "bg_success" }
+          { text: "💰 ব্যালেন্স চেক" },
+          { text: "💸 ব্যালেন্স উত্তোলন" }
         ],
         [
-          { text: "👥 রেফারেল লিংক", callback_data: "cmd_referral", style: "bg_primary" },
-          { text: "📞 সাপোর্ট", callback_data: "cmd_support", style: "bg_primary" }
+          { text: "👥 রেফারেল লিংক" },
+          { text: "📞 সাপোর্ট" }
         ]
-      ]
-    } as any
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
   });
 }
 
@@ -457,16 +459,18 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [
+      keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রামের কাজ", callback_data: "cmd_insta_work", style: "bg_success" },
-          { text: "👥 ফেসবুকের কাজ", callback_data: "cmd_fb_work", style: "bg_primary" }
+          { text: "📸 ইনস্টাগ্রামের কাজ" },
+          { text: "👥 ফেসবুকের কাজ" }
         ],
         [
-          { text: "🔙 মেইন মেনু", callback_data: "cmd_main_menu", style: "bg_danger" }
+          { text: "🔙 মেইন মেনু" }
         ]
-      ]
-    } as any
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
   });
 }
 

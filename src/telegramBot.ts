@@ -1278,10 +1278,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       const keyboardRows = [
         [
-          { text: `💼 মূল ব্যালেন্স (৳${stats.balance})` },
-          { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})` }
+          { text: `💼 মূল ব্যালেন্স (৳${stats.balance})`, style: "success" },
+          { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})`, style: "primary" }
         ],
-        [{ text: "🔙 মেইন মেনু" }]
+        [{ text: "🔙 মেইন মেনু", style: "danger" }]
       ];
 
       await bot.sendMessage(chatId, `🏦 <b>টাকা উত্তোলন (Withdrawal)</b>\n\nআপনি কোন ব্যালেন্স থেকে টাকা উত্তোলন করতে চান? নিচে থেকে নির্বাচন করুন:\n\n💼 <b>মূল ব্যালেন্স:</b> ৳<b>${stats.balance}</b> Taka\n👥 <b>রেফার ব্যালেন্স:</b> ৳<b>${stats.referralBalance}</b> Taka`, {
@@ -1289,7 +1289,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         reply_markup: {
           keyboard: keyboardRows,
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1735,9 +1735,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         {
           parse_mode: "HTML",
           reply_markup: {
-            keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+            keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
             resize_keyboard: true
-          }
+          } as any
         }
       );
       return;
@@ -1750,11 +1750,11 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "🔙 মেইন মেনু" }],
-            [{ text: "📞 সাপোর্ট" }]
+            [{ text: "🔙 মেইন মেনু", style: "danger" }],
+            [{ text: "📞 সাপোর্ট", style: "primary" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       }
     );
     return;
@@ -1787,13 +1787,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         reply_markup: {
           keyboard: [
             [
-              { text: `💼 মূল ব্যালেন্স (৳${stats.balance})` },
-              { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})` }
+              { text: `💼 মূল ব্যালেন্স (৳${stats.balance})`, style: "success" },
+              { text: `👥 রেফার ব্যালেন্স (৳${stats.referralBalance})`, style: "primary" }
             ],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }

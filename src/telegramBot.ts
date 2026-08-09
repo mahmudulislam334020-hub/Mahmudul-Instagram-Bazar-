@@ -433,22 +433,20 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
+      inline_keyboard: [
         [
-          { text: "💼 কাজ" }
+          { text: "💼 কাজ", callback_data: "cmd_work", style: "success" }
         ],
         [
-          { text: "💰 ব্যালেন্স চেক" },
-          { text: "💸 ব্যালেন্স উত্তোলন" }
+          { text: "💰 ব্যালেন্স চেক", callback_data: "cmd_balance", style: "primary" },
+          { text: "💸 ব্যালেন্স উত্তোলন", callback_data: "cmd_withdraw", style: "success" }
         ],
         [
-          { text: "👥 রেফারেল লিংক" },
-          { text: "📞 সাপোর্ট" }
+          { text: "👥 রেফারেল লিংক", callback_data: "cmd_referral", style: "primary" },
+          { text: "📞 সাপোর্ট", callback_data: "cmd_support", style: "primary" }
         ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    }
+      ]
+    } as any
   });
 }
 
@@ -459,18 +457,16 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
+      inline_keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রামের কাজ" },
-          { text: "👥 ফেসবুকের কাজ" }
+          { text: "📸 ইনস্টাগ্রামের কাজ", callback_data: "cmd_insta_work", style: "success" },
+          { text: "👥 ফেসবুকের কাজ", callback_data: "cmd_fb_work", style: "primary" }
         ],
         [
-          { text: "🔙 মেইন মেনু" }
+          { text: "🔙 মেইন মেনু", callback_data: "cmd_main_menu", style: "danger" }
         ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    }
+      ]
+    } as any
   });
 }
 
@@ -615,16 +611,16 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "📘 মেথড চ্যানেলে জয়েন করুন", url: methodUrl }
+          { text: "📘 মেথড চ্যানেলে জয়েন করুন", url: methodUrl, style: "primary" }
         ],
         [
-          { text: "📢 মেইন চ্যানেলে জয়েন করুন", url: mainUrl }
+          { text: "📢 মেইন চ্যানেলে জয়েন করুন", url: mainUrl, style: "primary" }
         ],
         [
-          { text: "✅ ভেরিফাই করুন", callback_data: "verify_join" }
+          { text: "✅ ভেরিফাই করুন", callback_data: "verify_join", style: "success" }
         ]
       ]
-    }
+    } as any
   });
 }
 

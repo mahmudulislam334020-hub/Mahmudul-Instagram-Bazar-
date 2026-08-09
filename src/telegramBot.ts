@@ -433,19 +433,21 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [
+      keyboard: [
         [
-          { text: "💼 কাজ", callback_data: "cmd_work", style: "success" }
+          { text: "💼 কাজ", style: "success" }
         ],
         [
-          { text: "💰 ব্যালেন্স চেক", callback_data: "cmd_balance", style: "primary" },
-          { text: "💸 ব্যালেন্স উত্তোলন", callback_data: "cmd_withdraw", style: "success" }
+          { text: "💰 ব্যালেন্স চেক", style: "primary" },
+          { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }
         ],
         [
-          { text: "👥 রেফারেল লিংক", callback_data: "cmd_referral", style: "primary" },
-          { text: "📞 সাপোর্ট", callback_data: "cmd_support", style: "primary" }
+          { text: "👥 রেফারেল লিংক", style: "primary" },
+          { text: "📞 সাপোর্ট", style: "primary" }
         ]
-      ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
     } as any
   });
 }
@@ -457,15 +459,17 @@ async function showWorkMenu(bot: TelegramBot, chatId: number) {
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [
+      keyboard: [
         [
-          { text: "📸 ইনস্টাগ্রামের কাজ", callback_data: "cmd_insta_work", style: "success" },
-          { text: "👥 ফেসবুকের কাজ", callback_data: "cmd_fb_work", style: "primary" }
+          { text: "📸 ইনস্টাগ্রামের কাজ", style: "success" },
+          { text: "👥 ফেসবুকের কাজ", style: "primary" }
         ],
         [
-          { text: "🔙 মেইন মেনু", callback_data: "cmd_main_menu", style: "danger" }
+          { text: "🔙 মেইন মেনু", style: "danger" }
         ]
-      ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
     } as any
   });
 }
@@ -1107,12 +1111,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "📞 সাপোর্ট" }]
+              [{ text: "💼 কাজ", style: "success" }],
+              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
             ],
             resize_keyboard: true
-          }
+          } as any
         });
         return;
       }
@@ -1126,12 +1130,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       const promptMsg = await bot.sendMessage(chatId, `🛡️ ইনস্টাগ্রামে 2FA চালু করার পর নিচে ক্লিক করে কোড নিন বা বাতিল করুন:`, {
         reply_markup: {
           keyboard: [
-            [{ text: "🛡️ টু-এফএ সেট করুন" }],
-            [{ text: "❌ কাজটি বাতিল করুন" }]
+            [{ text: "🛡️ টু-এফএ সেট করুন", style: "success" }],
+            [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
           ],
           resize_keyboard: true,
           one_time_keyboard: false
-        }
+        } as any
       });
 
       state.step = "awaiting_instagram_2fa_key";
@@ -1156,10 +1160,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           reply_markup: {
             inline_keyboard: [
               [
-                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Earnpointcustomercare" }
+                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Earnpointcustomercare", style: "primary" }
               ]
             ]
-          }
+          } as any
         }
       );
       return;
@@ -1186,12 +1190,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "💼 কাজ" }],
-            [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-            [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+            [{ text: "💼 কাজ", style: "success" }],
+            [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+            [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1221,12 +1225,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "💼 কাজ" }],
-            [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-            [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+            [{ text: "💼 কাজ", style: "success" }],
+            [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+            [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1241,12 +1245,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+              [{ text: "💼 কাজ", style: "success" }],
+              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
             ],
             resize_keyboard: true
-          }
+          } as any
         });
         return;
       }
@@ -1258,12 +1262,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+              [{ text: "💼 কাজ", style: "success" }],
+              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
             ],
             resize_keyboard: true
-          }
+          } as any
         });
         return;
       }

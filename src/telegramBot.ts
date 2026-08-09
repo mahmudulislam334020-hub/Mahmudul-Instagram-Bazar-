@@ -979,12 +979,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: `number/anymail Facebook Cookie (৳${fbRate})` }],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: `number/anymail Facebook Cookie (৳${fbRate})`, style: "primary" }],
+            [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true,
           one_time_keyboard: false
-        }
+        } as any
       });
       return;
     }
@@ -1016,12 +1016,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: `📸 ইনস্টাগ্রাম টু-এফএ (৳${instaRate})` }],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: `📸 ইনস্টাগ্রাম টু-এফএ (৳${instaRate})`, style: "success" }],
+            [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true,
           one_time_keyboard: false
-        }
+        } as any
       });
       return;
     }
@@ -1063,12 +1063,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         parse_mode: "HTML",
         reply_markup: {
           keyboard: [
-            [{ text: "Send UID" }],
-            [{ text: "❌ কাজটি বাতিল করুন" }]
+            [{ text: "Send UID", style: "primary" }],
+            [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
           ],
           resize_keyboard: true,
           one_time_keyboard: false
-        }
+        } as any
       });
 
       state.step = "awaiting_facebook_uid";
@@ -1314,9 +1314,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `👤 অনুগ্রহ করে আপনার ১৬ সংখ্যার ফেসবুক ইউ আই ডি <b>(Facebook UID)</b> টি নিচে লিখে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1328,9 +1328,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `❌ <b>ভুল ইউ আই ডি!</b> অনুগ্রহ করে সঠিক ফেসবুক ইউ আই ডি (Facebook UID) প্রদান করুন (স্পেস ছাড়া শুধু সংখ্যা):`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1367,9 +1367,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `❌ <b>এই আইডিটি জমা দেওয়া যাবে না!</b>\n\nএই ইউআইডি (UID) টি প্যানেলে বর্তমানে পেন্ডিং অবস্থায় রয়েছে। এটি দ্বিতীয়বার সাবমিট করা যাবে না।\n\nঅনুগ্রহ করে একটি ভিন্ন ইউআইডি (UID) সাবমিট করুন:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1383,9 +1383,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     await bot.sendMessage(chatId, `🍪 ইউ আই ডি সফলভাবে সেট হয়েছে!\n\nএখন অনুগ্রহ করে আপনার ফেসবুক কুকি <b>(Facebook Cookie)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
       parse_mode: "HTML",
       reply_markup: {
-        keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+        keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
         resize_keyboard: true
-      }
+      } as any
     });
     return;
   }
@@ -1406,9 +1406,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `⚠️ <b>ভুল কুকি!</b> অনুগ্রহ করে একটি সঠিক ফেসবুক কুকি (Facebook Cookie) লিখে বা পেস্ট করে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1423,12 +1423,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "✅ কাজ সম্পূর্ণ" }],
-          [{ text: "❌ কাজটি বাতিল করুন" }]
+          [{ text: "✅ কাজ সম্পূর্ণ", style: "success" }],
+          [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
         ],
         resize_keyboard: true,
         one_time_keyboard: false
-      }
+      } as any
     });
     return;
   }
@@ -1664,9 +1664,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       const promptMsg = await bot.sendMessage(chatId, `🔑 অনুগ্রহ করে আপনার ইনস্টাগ্রামের <b>২-ফ্যাক্টর কি (2FA Secret Key)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
 
       if (state.instagramData) {
@@ -1684,9 +1684,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       const errorPrompt = await bot.sendMessage(chatId, `❌ <b>ভুল ২-ফ্যাক্টর সিক্রেট কি!</b> অনুগ্রহ করে একটি সঠিক ও সচল 2FA Secret Key দিন (স্পেস ছাড়া):`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "❌ কাজটি বাতিল করুন" }]],
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       if (state.instagramData) {
         state.instagramData.promptMsgId = errorPrompt.message_id;
@@ -1700,12 +1700,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "✅ অ্যাকাউন্ট খোলা শেষ" }],
-          [{ text: "❌ কাজটি বাতিল করুন" }]
+          [{ text: "✅ অ্যাকাউন্ট খোলা শেষ", style: "success" }],
+          [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
         ],
         resize_keyboard: true,
         one_time_keyboard: false
-      }
+      } as any
     });
 
     state.instagramData = {
@@ -1805,12 +1805,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+              [{ text: "💼 কাজ", style: "success" }],
+              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
             ],
             resize_keyboard: true
-          }
+          } as any
         });
         state.step = "main_menu";
         state.withdrawData = undefined;
@@ -1824,12 +1824,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           parse_mode: "HTML",
           reply_markup: {
             keyboard: [
-              [{ text: "💼 কাজ" }],
-              [{ text: "💰 ব্যালেন্স চেক" }, { text: "💸 ব্যালেন্স উত্তোলন" }],
-              [{ text: "👥 রেফারেল লিংক" }, { text: "📞 সাপোর্ট" }]
+              [{ text: "💼 কাজ", style: "success" }],
+              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
+              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
             ],
             resize_keyboard: true
-          }
+          } as any
         });
         state.step = "main_menu";
         state.withdrawData = undefined;
@@ -1848,13 +1848,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     const keyboardRows = [
       [
-        { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
-        { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+        { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)", style: "primary" },
+        { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)", style: "primary" }
       ],
       [
-        { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+        { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)", style: "primary" }
       ],
-      [{ text: "🔙 মেইন মেনু" }]
+      [{ text: "🔙 মেইন মেনু", style: "danger" }]
     ];
 
     const typeTitle = chosenType === 'referral' ? '👥 রেফার ব্যালেন্স' : '💼 মূল ব্যালেন্স';
@@ -1864,7 +1864,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         keyboard: keyboardRows,
         resize_keyboard: true,
         one_time_keyboard: true
-      }
+      } as any
     });
     return;
   }
@@ -1900,16 +1900,16 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         reply_markup: {
           keyboard: [
             [
-              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
-              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)", style: "primary" },
+              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)", style: "primary" }
             ],
             [
-              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)", style: "primary" }
             ],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1949,16 +1949,16 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         reply_markup: {
           keyboard: [
             [
-              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)" },
-              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)" }
+              { text: bkashActive ? "বিকাশ (bKash)" : "বিকাশ (bKash) ❌ (বন্ধ)", style: "primary" },
+              { text: nagadActive ? "নগদ (Nagad)" : "নগদ (Nagad) ❌ (বন্ধ)", style: "primary" }
             ],
             [
-              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)" }
+              { text: rocketActive ? "রকেট (Rocket)" : "রকেট (Rocket) ❌ (বন্ধ)", style: "primary" }
             ],
-            [{ text: "🔙 মেইন মেনু" }]
+            [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -1970,10 +1970,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     await bot.sendMessage(chatId, `🏦 আপনি <b>${selectedMethod}</b> সিলেক্ট করেছেন।\n\n📱 অনুগ্রহ করে আপনার সচল ১১-ডিজিটের <b>${selectedMethod}</b> অ্যাকাউন্ট নাম্বারটি লিখে পাঠান:`, {
       parse_mode: "HTML",
       reply_markup: {
-        keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+        keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
         resize_keyboard: true,
         one_time_keyboard: true
-      }
+      } as any
     });
     return;
   }
@@ -1992,9 +1992,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (walletNum.length !== 11 || !walletNum.startsWith("01")) {
       await bot.sendMessage(chatId, `❌ <b>ভুল নাম্বার!</b> সঠিক ১১ ডিজিটের মোবাইল ব্যাংকিং নাম্বারটি লিখে পাঠান (যেমন: 017XXXXXXXX):`, {
         reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -2035,17 +2035,17 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
     const isReferral = state.withdrawData?.balanceType === 'referral';
     const currentBal = isReferral ? stats.referralBalance : stats.balance;
-    const typeLabel = isReferral ? 'রেফার ব্যালেন্স' : 'উত্তোলনযোগ্য মূল ব্যালেন্স';
+    const typeLabel = isReferral ? 'রেফার ব্যালেন্স' : 'উত্তোলনের মূল ব্যালেন্স';
 
     await bot.sendMessage(chatId, `📱 <b>নাম্বার সেট হয়েছে:</b> <code>${walletNum}</code> (${state.withdrawData.method})\n` +
                                  `💵 <b>আপনার ${typeLabel}:</b> ৳<b>${currentBal}</b> Taka\n\n` +
                                  `💰 আপনি কত টাকা উত্তোলন করতে চান? অনুগ্রহ করে শুধুমাত্র সংখ্যায় পরিমাণটি লিখে পাঠান (যেমন: ৫০০):`, {
       parse_mode: "HTML",
       reply_markup: {
-        keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+        keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
         resize_keyboard: true,
         one_time_keyboard: true
-      }
+      } as any
     });
     return;
   }
@@ -2077,9 +2077,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (isNaN(amount) || amount <= 0) {
       await bot.sendMessage(chatId, `❌ <b>ভুল পরিমাণ!</b> শুধুমাত্র সংখ্যায় পরিমাণটি লিখুন (যেমন: ৫০০):`, {
         reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -2093,9 +2093,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `❌ <b>কম পরিমাণের উইথড্র!</b>\n\n${isReferral ? 'রেফার' : 'মূল'} ব্যালেন্স থেকে সর্বনিম্ন উইথড্র পরিমাণ হলো ৳<b>${minWithdrawLimit}</b> Taka। আপনার প্রদানকৃত পরিমাণ: ৳<b>${amount}</b> Taka।\n\nঅনুগ্রহ করে ৳<b>${minWithdrawLimit}</b> Taka বা তার বেশি পরিমাণ লিখে পাঠান:`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }
@@ -2106,9 +2106,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (amount > availableBal) {
       await bot.sendMessage(chatId, `❌ <b>পর্যাপ্ত ব্যালেন্স নেই!</b>\n\nআপনার সর্বোচ্চ উইথড্রযোগ্য ${isReferral ? 'রেফার' : 'মূল'} ব্যালেন্স: ৳${availableBal} Taka`, {
         reply_markup: {
-          keyboard: [[{ text: "🔙 মেইন মেনু" }]],
+          keyboard: [[{ text: "🔙 মেইন মেনু", style: "danger" }]],
           resize_keyboard: true
-        }
+        } as any
       });
       return;
     }

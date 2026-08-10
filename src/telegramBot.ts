@@ -60,34 +60,6 @@ interface BotState {
 
 const userStates = new Map<number, BotState>();
 
-const MAINTENANCE_MSG = "⚠️ বটটি বর্তমানে মেইনটেনেন্সের (Maintenance) মধ্যে আছে। দুপুর ২:০০ টায় এটি আবার স্বাভাবিকভাবে চালু হবে। অনুগ্রহ করে অপেক্ষা করুন।";
-
-export function checkRethrowQuota(err: any) {
-  if (!err) return;
-  const errStr = String(err?.message || err || "").toLowerCase();
-  if (
-    errStr.includes("quota limit exceeded") ||
-    errStr.includes("quota") ||
-    errStr.includes("resource_exhausted") ||
-    errStr.includes("429")
-  ) {
-    throw err;
-  }
-}
-
-export function getErrorMessage(err: any): string {
-  const errStr = String(err?.message || err || "").toLowerCase();
-  const isQuota =
-    errStr.includes("quota limit exceeded") ||
-    errStr.includes("quota") ||
-    errStr.includes("resource_exhausted") ||
-    errStr.includes("429");
-  if (isQuota) {
-    return MAINTENANCE_MSG;
-  }
-  return `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`;
-}
-
 // --- Helper: Base32 decoding and TOTP code generation ---
 function base32ToBytes(base32: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -216,14 +188,26 @@ export async function getGlobalSettings(forceRefresh = false) {
       return cachedSettings;
     }
   } catch (err: any) {
-    checkRethrowQuota(err);
     if (cachedSettings) return cachedSettings;
-    console.warn("Notice fetching global settings:", err?.message || err);
+    if (err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota")) {
+      console.warn("[Quota Limit] Using fallback settings for Telegram Bot.");
+    } else {
+      console.warn("Notice fetching global settings:", err?.message || err);
+    }
   }
   return cachedSettings || { ratePerId: 45, facebookRatePerId: 45, instagramRatePerId: 45 };
 }
 
 const userStatsCache = new Map<string, { data: any; time: number }>();
+const profileInMemoryCache = new Map<string, { profile: any; time: number }>();
+
+export function invalidateProfileCache(chatId?: string) {
+  if (chatId) {
+    profileInMemoryCache.delete(String(chatId));
+  } else {
+    profileInMemoryCache.clear();
+  }
+}
 
 export function invalidateUserStatsCache(key?: string) {
   if (key) {
@@ -258,19 +242,19 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
       try {
         const pDoc = await getDoc(doc(db, "profiles", walletNumber));
         if (pDoc.exists()) matchingProfilesMap.set(pDoc.id, pDoc.data());
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
 
       try {
         const q1 = query(profilesRef, where("walletNumber", "==", walletNumber));
         const s1 = await getDocs(q1);
         s1.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
 
       try {
         const q2 = query(profilesRef, where("payoutNumber", "==", walletNumber));
         const s2 = await getDocs(q2);
         s2.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
     }
 
     if (telegramChatId) {
@@ -278,7 +262,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         const q3 = query(profilesRef, where("telegramChatId", "==", String(telegramChatId)));
         const s3 = await getDocs(q3);
         s3.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
     }
 
     const matchingProfiles = Array.from(matchingProfilesMap.values());
@@ -300,7 +284,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         snap1.forEach(docSnap => {
           uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
         });
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
 
       try {
         const q2 = query(submissionsRef, where("telegramChatId", "==", sid));
@@ -308,7 +292,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         snap2.forEach(docSnap => {
           uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
         });
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
     }
 
     const userSubmissions = Array.from(uniqueSubmissions.values());
@@ -348,7 +332,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         wSnap1.forEach(docSnap => {
           uniqueWithdrawals.set(docSnap.id, docSnap.data());
         });
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
     }
 
     if (walletNumber) {
@@ -358,7 +342,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         wSnap2.forEach(docSnap => {
           uniqueWithdrawals.set(docSnap.id, docSnap.data());
         });
-      } catch (e) { checkRethrowQuota(e); }
+      } catch (e) {}
     }
 
     const withdrawals = Array.from(uniqueWithdrawals.values());
@@ -568,9 +552,7 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
     if (s.forceJoinMethodChannel !== undefined && String(s.forceJoinMethodChannel).trim() !== "") {
       methodChannel = String(s.forceJoinMethodChannel).trim();
     }
-  } catch (e) {
-    checkRethrowQuota(e);
-  }
+  } catch (e) {}
 
   const requiredChannels: string[] = [];
   
@@ -643,9 +625,7 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
     if (s.forceJoinMethodChannel) {
       methodUrl = getChannelUrl(String(s.forceJoinMethodChannel));
     }
-  } catch (e) {
-    checkRethrowQuota(e);
-  }
+  } catch (e) {}
 
   let text = "";
   if (isVerifyRetry) {
@@ -871,6 +851,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         };
         await setDoc(profileDocRef, profile);
       }
+      invalidateProfileCache(String(chatId));
 
       // Cleanup duplicated/empty profiles under this telegramChatId to prevent clutter
       try {
@@ -966,23 +947,38 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
   const state = userStates.get(chatId) || { step: "main_menu" };
   
   // --- Registered user flows (Requires Profile in Firebase) ---
-  const profilesRef = collection(db, "profiles");
-  const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
-  const querySnapshot = await getDocs(q);
+  const now = Date.now();
+  const cachedProf = profileInMemoryCache.get(String(chatId));
+  let profile: any;
 
-  let profile;
-  if (querySnapshot.empty) {
-    // If somehow not created, create it now
-    await addDoc(profilesRef, {
-      telegramChatId: String(chatId),
-      createdAt: new Date(),
-      walletNumber: "",
-      walletType: ""
-    });
-    const newSnapshot = await getDocs(q);
-    profile = newSnapshot.docs[0].data();
+  if (cachedProf && (now - cachedProf.time < 120000)) { // 2 minutes TTL
+    profile = cachedProf.profile;
   } else {
-    profile = querySnapshot.docs[0].data();
+    try {
+      const profilesRef = collection(db, "profiles");
+      const q = query(profilesRef, where("telegramChatId", "==", String(chatId)), limit(1));
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        await addDoc(profilesRef, {
+          telegramChatId: String(chatId),
+          createdAt: new Date(),
+          walletNumber: "",
+          walletType: ""
+        });
+        const newSnapshot = await getDocs(q);
+        profile = !newSnapshot.empty ? newSnapshot.docs[0].data() : { telegramChatId: String(chatId) };
+      } else {
+        profile = querySnapshot.docs[0].data();
+      }
+      profileInMemoryCache.set(String(chatId), { profile, time: now });
+    } catch (err) {
+      if (cachedProf) {
+        profile = cachedProf.profile;
+      } else {
+        profile = { telegramChatId: String(chatId) };
+      }
+    }
   }
 
   // Handle Main Menu
@@ -1399,7 +1395,6 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         });
       }
     } catch (err) {
-      checkRethrowQuota(err);
       console.error("Error checking duplicate pending UID:", err);
     }
 
@@ -1507,7 +1502,6 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           }
         });
       } catch (err) {
-        checkRethrowQuota(err);
         console.error("Error checking duplicate pending FB UID on complete:", err);
       }
 
@@ -1625,7 +1619,6 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           }
         });
       } catch (err) {
-        checkRethrowQuota(err);
         console.error("Error checking duplicate pending Instagram account:", err);
       }
 
@@ -2061,6 +2054,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         profile.payoutNumber = walletNum;
         profile.walletType = state.withdrawData?.method || "bKash";
         console.log(`Updated payout info for chatId ${chatId}. Preserved walletNumber: ${profile.walletNumber || walletNum}`);
+        invalidateProfileCache(String(chatId));
       }
     } catch (err) {
       console.error("Error updating profile payout info:", err);
@@ -2357,7 +2351,7 @@ export async function handleWebhookUpdate(update: any) {
     } catch (err: any) {
       console.error("Error handling telegram bot message in webhook:", err?.message || err);
       try {
-        await currentBot.sendMessage(chatId, getErrorMessage(err));
+        await currentBot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
       } catch (sendErr) {
         console.error("Error sending error message:", sendErr);
       }
@@ -2370,7 +2364,7 @@ export async function handleWebhookUpdate(update: any) {
       try {
         const chatId = update.callback_query.message?.chat?.id;
         if (chatId) {
-          await currentBot.sendMessage(chatId, getErrorMessage(err));
+          await currentBot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
         }
       } catch (sendErr) {}
     }
@@ -2466,7 +2460,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
       } catch (err: any) {
         console.error("Error handling telegram bot message:", err?.message || err);
         try {
-          await bot.sendMessage(chatId, getErrorMessage(err));
+          await bot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
         } catch (sendErr) {
           console.error("Error sending error message:", sendErr);
         }
@@ -2482,7 +2476,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
         try {
           const chatId = callbackQuery.message?.chat?.id;
           if (chatId) {
-            await bot.sendMessage(chatId, getErrorMessage(err));
+            await bot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
           }
         } catch (sendErr) {}
       }

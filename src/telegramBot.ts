@@ -216,12 +216,9 @@ export async function getGlobalSettings(forceRefresh = false) {
       return cachedSettings;
     }
   } catch (err: any) {
+    checkRethrowQuota(err);
     if (cachedSettings) return cachedSettings;
-    if (err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota")) {
-      console.warn("[Quota Limit] Using fallback settings for Telegram Bot.");
-    } else {
-      console.warn("Notice fetching global settings:", err?.message || err);
-    }
+    console.warn("Notice fetching global settings:", err?.message || err);
   }
   return cachedSettings || { ratePerId: 45, facebookRatePerId: 45, instagramRatePerId: 45 };
 }
@@ -572,7 +569,7 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
       methodChannel = String(s.forceJoinMethodChannel).trim();
     }
   } catch (e) {
-    // ignore fetch error
+    checkRethrowQuota(e);
   }
 
   const requiredChannels: string[] = [];
@@ -646,7 +643,9 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
     if (s.forceJoinMethodChannel) {
       methodUrl = getChannelUrl(String(s.forceJoinMethodChannel));
     }
-  } catch (e) {}
+  } catch (e) {
+    checkRethrowQuota(e);
+  }
 
   let text = "";
   if (isVerifyRetry) {
@@ -1400,6 +1399,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         });
       }
     } catch (err) {
+      checkRethrowQuota(err);
       console.error("Error checking duplicate pending UID:", err);
     }
 
@@ -1507,6 +1507,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           }
         });
       } catch (err) {
+        checkRethrowQuota(err);
         console.error("Error checking duplicate pending FB UID on complete:", err);
       }
 
@@ -1624,6 +1625,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           }
         });
       } catch (err) {
+        checkRethrowQuota(err);
         console.error("Error checking duplicate pending Instagram account:", err);
       }
 

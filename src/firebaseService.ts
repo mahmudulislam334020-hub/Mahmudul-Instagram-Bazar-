@@ -190,16 +190,23 @@ export async function getSubmissions(): Promise<Submission[]> {
   }
 }
 
-export async function updateSubmissionStatus(id: string, status: "approved" | "rejected"): Promise<void> {
+export async function updateSubmissionStatus(id: string, status: "approved" | "rejected", overrideRate?: number): Promise<void> {
   try {
     const docRef = doc(db, "submissions", id);
-    await withTimeout(updateDoc(docRef, { status }));
+    const updateData: any = { status };
+    if (overrideRate !== undefined && overrideRate >= 0) {
+      updateData.rate = overrideRate;
+    }
+    await withTimeout(updateDoc(docRef, updateData));
   } catch (error) {
     console.warn("Firestore update error, updating fallback:", error);
     const subs = getFallbackSubmissions();
     const index = subs.findIndex(s => s.id === id);
     if (index !== -1) {
       subs[index].status = status;
+      if (overrideRate !== undefined && overrideRate >= 0) {
+        subs[index].rate = overrideRate;
+      }
       saveFallbackSubmissions(subs);
     }
   }

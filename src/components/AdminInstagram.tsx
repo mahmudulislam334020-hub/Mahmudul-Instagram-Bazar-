@@ -26,10 +26,10 @@ export interface AdminInstagramProps {
   setSelectedSubIds: React.Dispatch<React.SetStateAction<string[]>>;
   pastedUsernamesText: string;
   setPastedUsernamesText: React.Dispatch<React.SetStateAction<string>>;
-  bulkPasteResult: { type: 'success' | 'error', text: string } | null;
-  handleBulkPasteAction: (action: 'approved' | 'rejected') => void;
-  handleBulkSubAction: (action: 'approved' | 'rejected') => void;
-  handleApproveRejectSub: (id: string, action: 'approved' | 'rejected') => void;
+  bulkPasteResult: { type: 'success' | 'error' | 'info', text: string } | null;
+  handleBulkPasteAction: (action: 'approved' | 'rejected', overrideRate?: number) => void;
+  handleBulkSubAction: (action: 'approved' | 'rejected', overrideRate?: number) => void;
+  handleApproveRejectSub: (id: string, action: 'approved' | 'rejected', overrideRate?: number) => void;
   handleDeleteSub: (id: string) => void;
   handleExportCSV: () => void;
   workerSearchQuery: string;
@@ -96,7 +96,14 @@ export default function AdminInstagram({
 }: AdminInstagramProps) {
   const [passwordFilter, setPasswordFilter] = React.useState('');
   const [exportStatusMode, setExportStatusMode] = React.useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
+  const [customApprovalRate, setCustomApprovalRate] = React.useState<number>(settings.ratePerId || 45);
   const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
+
+  React.useEffect(() => {
+    if (settings.ratePerId !== undefined) {
+      setCustomApprovalRate(settings.ratePerId);
+    }
+  }, [settings.ratePerId]);
   const [passwordActionResult, setPasswordActionResult] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [selectedWorkerForBalance, setSelectedWorkerForBalance] = React.useState<string | null>(null);
   const [selectedWorkerForDetails, setSelectedWorkerForDetails] = React.useState<string | null>(null);
@@ -233,21 +240,34 @@ export default function AdminInstagram({
           </p>
         </div>
         
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
+            <span className="text-[11px] text-emerald-400 font-bold whitespace-nowrap">রেট (৳):</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={customApprovalRate}
+              onChange={(e) => setCustomApprovalRate(parseFloat(e.target.value) || 0)}
+              className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500"
+              title="আইডি এপ্রুভ করার সময় প্রতিটি আইডির জন্য যে রেট ইউজার পাবে"
+            />
+          </div>
+
           <button 
             onClick={handleExportCSV}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors border border-slate-700 text-slate-300"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg flex items-center gap-2 transition-colors border border-slate-700 text-slate-300"
           >
             <Download size={14} />
-            <span>এক্সেল ফাইল ডাউনলোড (CSV)</span>
+            <span>এক্সেল (CSV)</span>
           </button>
 
           <button 
-            onClick={() => handleBulkSubAction('approved')}
+            onClick={() => handleBulkSubAction('approved', customApprovalRate)}
             disabled={selectedSubIds.length === 0}
             className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all"
           >
-            বাল্ক অনুমোদন ({selectedSubIds.length})
+            বাল্ক অনুমোদন ({selectedSubIds.length}) [৳{customApprovalRate}]
           </button>
 
           <button 
@@ -338,27 +358,43 @@ export default function AdminInstagram({
                 <div className={`p-3 rounded-xl text-xs font-medium leading-relaxed border ${
                   bulkPasteResult.type === 'success' 
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                    : bulkPasteResult.type === 'info'
+                    ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
                     : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
                 }`}>
                   {bulkPasteResult.text}
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => handleBulkPasteAction('rejected')}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                >
-                  ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkPasteAction('approved')}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
-                >
-                  ✅ পেস্টকৃতগুলো অনুমোদন করুন (Bulk Approve)
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
+                  <span className="text-[11px] text-emerald-400 font-bold whitespace-nowrap">অনুমোদন রেট (৳/আইডি):</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={customApprovalRate}
+                    onChange={(e) => setCustomApprovalRate(parseFloat(e.target.value) || 0)}
+                    className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleBulkPasteAction('rejected')}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                  >
+                    ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkPasteAction('approved', customApprovalRate)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                  >
+                    ✅ পেস্টকৃতগুলো অনুমোদন করুন (৳{customApprovalRate} রেটে)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -654,7 +690,7 @@ export default function AdminInstagram({
                           {sub.status === 'pending' ? (
                             <div className="flex gap-1.5 justify-end">
                               <button 
-                                onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
+                                onClick={() => handleApproveRejectSub(sub.id || '', 'approved', customApprovalRate)}
                                 className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors"
                                 title="Approve"
                               >
@@ -856,7 +892,7 @@ export default function AdminInstagram({
                                     {sub.status === 'pending' ? (
                                       <div className="flex gap-1.5 justify-end">
                                         <button 
-                                          onClick={() => handleApproveRejectSub(sub.id || '', 'approved')}
+                                          onClick={() => handleApproveRejectSub(sub.id || '', 'approved', customApprovalRate)}
                                           className="w-7 h-7 flex items-center justify-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white rounded-lg text-xs transition-colors"
                                           title="Approve"
                                         >

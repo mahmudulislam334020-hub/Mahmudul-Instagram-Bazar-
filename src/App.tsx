@@ -614,8 +614,10 @@ export default function App() {
   };
 
   // Admin: Update Single Submission
-  const handleApproveRejectSub = async (id: string, newStatus: 'approved' | 'rejected') => {
-    await updateSubmissionStatus(id, newStatus);
+  const handleApproveRejectSub = async (id: string, newStatus: 'approved' | 'rejected', overrideRate?: number) => {
+    const actionText = newStatus === 'approved' ? 'অনুমোদন' : 'বাতিল';
+    showAdminToast(`⏳ আইডি ${actionText} করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।`, 'info');
+    await updateSubmissionStatus(id, newStatus, overrideRate);
     
     // Notify user via Telegram
     const sub = submissions.find(s => s.id === id);
@@ -645,7 +647,17 @@ export default function App() {
     }
 
     // update local state instantly
-    setSubmissions(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
+    setSubmissions(prev => prev.map(s => {
+      if (s.id === id) {
+        const updated = { ...s, status: newStatus };
+        if (overrideRate !== undefined && overrideRate >= 0) {
+          updated.rate = overrideRate;
+        }
+        return updated;
+      }
+      return s;
+    }));
+    showAdminToast(`✅ আইডি সফলভাবে ${actionText} করা হয়েছে!${newStatus === 'approved' && overrideRate !== undefined ? ` (রেট: ৳${overrideRate})` : ''}`, 'success');
   };
 
   // Admin: Delete Single Submission
@@ -790,12 +802,15 @@ export default function App() {
   };
 
   // Admin: Bulk Approve/Reject Submissions
-  const handleBulkSubAction = async (newStatus: 'approved' | 'rejected') => {
+  const handleBulkSubAction = async (newStatus: 'approved' | 'rejected', overrideRate?: number) => {
     if (selectedSubIds.length === 0) return;
+    const actionText = newStatus === 'approved' ? 'অনুমোদন' : 'বাতিল';
+    showAdminToast(`⏳ ${selectedSubIds.length}টি আইডি ${actionText} করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।`, 'info');
+
     const subsToNotify: { [walletNumber: string]: typeof submissions } = {};
 
     for (const id of selectedSubIds) {
-      await updateSubmissionStatus(id, newStatus);
+      await updateSubmissionStatus(id, newStatus, overrideRate);
       
       const sub = submissions.find(s => s.id === id);
       if (sub) {
@@ -860,12 +875,24 @@ export default function App() {
       }
     }
 
-    setSubmissions(prev => prev.map(s => selectedSubIds.includes(s.id || '') ? { ...s, status: newStatus } : s));
+    const processedCount = selectedSubIds.length;
+    setSubmissions(prev => prev.map(s => {
+      if (selectedSubIds.includes(s.id || '')) {
+        const updated = { ...s, status: newStatus };
+        if (overrideRate !== undefined && overrideRate >= 0) {
+          updated.rate = overrideRate;
+        }
+        return updated;
+      }
+      return s;
+    }));
     setSelectedSubIds([]);
+
+    showAdminToast(`✅ সফলভাবে ${processedCount}টি আইডি ${actionText} করা হয়েছে!${newStatus === 'approved' && overrideRate !== undefined ? ` (রেট: ৳${overrideRate})` : ''}`, 'success');
   };
 
   // Admin: Bulk Approve/Reject by pasted list of usernames
-  const handleBulkPasteAction = async (newStatus: 'approved' | 'rejected') => {
+  const handleBulkPasteAction = async (newStatus: 'approved' | 'rejected', overrideRate?: number) => {
     setBulkPasteResult(null);
     if (!pastedUsernamesText.trim()) {
       setBulkPasteResult({ type: 'error', text: 'অনুগ্রহ করে এক বা একাধিক ইউজারনেম পেস্ট করুন!' });
@@ -895,13 +922,19 @@ export default function App() {
       return;
     }
 
+    const actionText = newStatus === 'approved' ? 'অনুমোদন' : 'বাতিল';
+    setBulkPasteResult({
+      type: 'success',
+      text: `⏳ ${matchingSubs.length}টি আইডি ${actionText} করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।`
+    });
+
     let processedCount = 0;
     const updatedIds: string[] = [];
     const subsToNotify: { [walletNumber: string]: typeof submissions } = {};
 
     for (const sub of matchingSubs) {
       if (!sub.id) continue;
-      await updateSubmissionStatus(sub.id, newStatus);
+      await updateSubmissionStatus(sub.id, newStatus, overrideRate);
       updatedIds.push(sub.id);
       processedCount++;
 
@@ -966,12 +999,22 @@ export default function App() {
     }
 
     // Update local state instantly
-    setSubmissions(prev => prev.map(s => updatedIds.includes(s.id || '') ? { ...s, status: newStatus } : s));
+    setSubmissions(prev => prev.map(s => {
+      if (updatedIds.includes(s.id || '')) {
+        const updated = { ...s, status: newStatus };
+        if (overrideRate !== undefined && overrideRate >= 0) {
+          updated.rate = overrideRate;
+        }
+        return updated;
+      }
+      return s;
+    }));
     
     setBulkPasteResult({
       type: 'success',
-      text: `✅ সফলভাবে ${processedCount}টি আইডি ${newStatus === 'approved' ? 'অনুমোদন' : 'বাতিল'} করা হয়েছে!`
+      text: `✅ সফলভাবে ${processedCount}টি আইডি ${actionText} করা হয়েছে!${newStatus === 'approved' && overrideRate !== undefined ? ` (রেট: ৳${overrideRate})` : ''}`
     });
+    showAdminToast(`✅ সফলভাবে ${processedCount}টি আইডি ${actionText} করা হয়েছে!${newStatus === 'approved' && overrideRate !== undefined ? ` (রেট: ৳${overrideRate})` : ''}`, 'success');
     setPastedUsernamesText('');
   };
 

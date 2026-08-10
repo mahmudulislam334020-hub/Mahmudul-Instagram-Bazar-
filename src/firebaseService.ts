@@ -636,8 +636,12 @@ export async function fixAndRestoreUserIds(): Promise<{ fixedProfiles: number, f
     saveFallbackWithdrawals(fallbackWs);
 
     console.log(`[ID Restoration] Fixed: ${fixedProfiles} profiles, ${fixedSubmissions} submissions, ${fixedWithdrawals} withdrawals`);
-  } catch (err) {
-    console.error("Error in fixAndRestoreUserIds:", err);
+  } catch (err: any) {
+    if (err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota")) {
+      console.warn("[ID Restoration] Paused due to Firestore daily read quota limit.");
+    } else {
+      console.warn("Notice in fixAndRestoreUserIds:", err?.message || err);
+    }
   }
 
   return { fixedProfiles, fixedSubmissions, fixedWithdrawals };

@@ -171,240 +171,267 @@ function generateInstagramCreds(prefix?: string, dailyPassword?: string) {
   return { username, password };
 }
 
+let cachedSettings: any = null;
+let cachedSettingsTime = 0;
+
+export async function getGlobalSettings(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedSettings && (now - cachedSettingsTime < 120000)) { // 2 minutes TTL
+    return cachedSettings;
+  }
+  try {
+    const settingsRef = doc(db, "settings", "global");
+    const settingsSnap = await getDoc(settingsRef);
+    if (settingsSnap.exists()) {
+      cachedSettings = settingsSnap.data();
+      cachedSettingsTime = now;
+      return cachedSettings;
+    }
+  } catch (err: any) {
+    if (cachedSettings) return cachedSettings;
+    console.error("Error fetching global settings:", err?.message || err);
+  }
+  return cachedSettings || { ratePerId: 45 };
+}
+
+const userStatsCache = new Map<string, { data: any; time: number }>();
+
+export function invalidateUserStatsCache(key?: string) {
+  if (key) {
+    userStatsCache.delete(key);
+  } else {
+    userStatsCache.clear();
+  }
+}
+
 // --- Helper: Fetch user statistics ---
 async function getUserStats(walletNumber?: string, telegramChatId?: string) {
-  const settingsRef = doc(db, "settings", "global");
-  const settingsSnap = await getDoc(settingsRef);
-  const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
-  const ratePerId = settings.ratePerId || 45;
-  const facebookRatePerId = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : ratePerId;
-
-  const submissionsRef = collection(db, "submissions");
-  const uniqueSubmissions = new Map<string, any>();
-
-  // Fetch user profiles to gather all linked IDs (walletNumber, telegramChatId, payoutNumber)
-  const profilesRef = collection(db, "profiles");
-  const matchingProfilesMap = new Map<string, any>();
-
-  if (walletNumber) {
-    try {
-      const pDoc = await getDoc(doc(db, "profiles", walletNumber));
-      if (pDoc.exists()) matchingProfilesMap.set(pDoc.id, pDoc.data());
-    } catch (e) {}
-
-    try {
-      const q1 = query(profilesRef, where("walletNumber", "==", walletNumber));
-      const s1 = await getDocs(q1);
-      s1.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-    } catch (e) {}
-
-    try {
-      const q2 = query(profilesRef, where("payoutNumber", "==", walletNumber));
-      const s2 = await getDocs(q2);
-      s2.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-    } catch (e) {}
+  const cacheKey = `${walletNumber || ''}_${telegramChatId || ''}`;
+  const cached = userStatsCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && (now - cached.time < 30000)) { // 30 seconds TTL cache
+    return cached.data;
   }
 
-  if (telegramChatId) {
-    try {
-      const q3 = query(profilesRef, where("telegramChatId", "==", String(telegramChatId)));
-      const s3 = await getDocs(q3);
-      s3.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-    } catch (e) {}
-  }
+  try {
+    const settings = await getGlobalSettings();
+    const ratePerId = settings.ratePerId || 45;
+    const facebookRatePerId = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : ratePerId;
 
-  const matchingProfiles = Array.from(matchingProfilesMap.values());
-  const searchIds = new Set<string>();
-  if (walletNumber) searchIds.add(walletNumber);
-  if (telegramChatId) searchIds.add(String(telegramChatId));
+    const submissionsRef = collection(db, "submissions");
+    const uniqueSubmissions = new Map<string, any>();
 
-  matchingProfiles.forEach(pData => {
-    if (pData?.walletNumber) searchIds.add(pData.walletNumber);
-    if (pData?.telegramChatId) searchIds.add(String(pData.telegramChatId));
-    if (pData?.payoutNumber) searchIds.add(pData.payoutNumber);
-  });
+    // Fetch user profiles to gather all linked IDs (walletNumber, telegramChatId, payoutNumber)
+    const profilesRef = collection(db, "profiles");
+    const matchingProfilesMap = new Map<string, any>();
 
-  for (const sid of Array.from(searchIds)) {
-    if (!sid) continue;
-    try {
-      const q1 = query(submissionsRef, where("submittedBy", "==", sid));
-      const snap1 = await getDocs(q1);
-      snap1.forEach(docSnap => {
-        uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-      });
-    } catch (e) {}
-
-    try {
-      const q2 = query(submissionsRef, where("telegramChatId", "==", sid));
-      const snap2 = await getDocs(q2);
-      snap2.forEach(docSnap => {
-        uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-      });
-    } catch (e) {}
-  }
-
-  const userSubmissions = Array.from(uniqueSubmissions.values());
-
-  // Self-Healing logic:
-  // Update submittedBy and telegramChatId on submissions if they don't match the primary identifiers
-  const primaryWallet = walletNumber || matchingProfiles.find(p => p.walletNumber)?.walletNumber || (telegramChatId ? String(telegramChatId) : "");
-  const primaryChatId = telegramChatId ? String(telegramChatId) : (matchingProfiles.find(p => p.telegramChatId)?.telegramChatId ? String(matchingProfiles.find(p => p.telegramChatId).telegramChatId) : "");
-
-  for (const sub of userSubmissions) {
-    let needsUpdate = false;
-    const updateObj: any = {};
-
-    if (primaryChatId && sub.telegramChatId !== primaryChatId) {
-      updateObj.telegramChatId = primaryChatId;
-      sub.telegramChatId = primaryChatId;
-      needsUpdate = true;
-    }
-    if (primaryWallet && sub.submittedBy !== primaryWallet && sub.submittedBy !== primaryChatId) {
-      updateObj.submittedBy = primaryWallet;
-      sub.submittedBy = primaryWallet;
-      needsUpdate = true;
-    }
-
-    if (needsUpdate && sub.id) {
+    if (walletNumber) {
       try {
-        const subDocRef = doc(db, "submissions", sub.id);
-        await updateDoc(subDocRef, updateObj);
-      } catch (err) {
-        console.error(`Error self-healing submission ${sub.id}:`, err);
-      }
+        const pDoc = await getDoc(doc(db, "profiles", walletNumber));
+        if (pDoc.exists()) matchingProfilesMap.set(pDoc.id, pDoc.data());
+      } catch (e) {}
+
+      try {
+        const q1 = query(profilesRef, where("walletNumber", "==", walletNumber));
+        const s1 = await getDocs(q1);
+        s1.forEach(d => matchingProfilesMap.set(d.id, d.data()));
+      } catch (e) {}
+
+      try {
+        const q2 = query(profilesRef, where("payoutNumber", "==", walletNumber));
+        const s2 = await getDocs(q2);
+        s2.forEach(d => matchingProfilesMap.set(d.id, d.data()));
+      } catch (e) {}
     }
-  }
 
-  const approvedCount = userSubmissions.filter(s => s.status === "approved").length;
-  const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
-  const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
-
-  // Fetch extra preserved earnings & bonus balance from ALL matching user profiles in Firestore
-  let extraEarnings = 0;
-  matchingProfiles.forEach(p => {
-    extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
-  });
-
-  // Calculate rate based on category
-  const activeEarned = userSubmissions
-    .filter(s => s.status === "approved")
-    .reduce((sum, s) => {
-      if (s.rate !== undefined && s.rate > 0) {
-        return sum + s.rate;
-      }
-      const isFacebook = s.category === "facebook";
-      const rate = isFacebook ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45);
-      return sum + rate;
-    }, 0);
-
-  const totalEarned = activeEarned + extraEarnings;
-
-  // Fetch withdrawals for this user (by telegramChatId and/or walletNumber)
-  const withdrawalsRef = collection(db, "withdrawals");
-  const uniqueWithdrawals = new Map<string, any>();
-
-  if (telegramChatId) {
-    const wQuery1 = query(withdrawalsRef, where("telegramChatId", "==", String(telegramChatId)));
-    const wSnap1 = await getDocs(wQuery1);
-    wSnap1.forEach(docSnap => {
-      uniqueWithdrawals.set(docSnap.id, docSnap.data());
-    });
-  }
-
-  if (walletNumber) {
-    const wQuery2 = query(withdrawalsRef, where("submittedBy", "==", walletNumber));
-    const wSnap2 = await getDocs(wQuery2);
-    wSnap2.forEach(docSnap => {
-      uniqueWithdrawals.set(docSnap.id, docSnap.data());
-    });
-  }
-
-  const withdrawals = Array.from(uniqueWithdrawals.values());
-
-  // Fetch referral stats & commission from ALL matching user profiles in Firestore
-  let rawReferralBalance = 0;
-  let totalReferrals = 0;
-  const processedRefProfiles = new Set<string>();
-
-  matchingProfiles.forEach(p => {
-    const pKey = p.walletNumber || p.telegramChatId || p.payoutNumber;
-    if (pKey && !processedRefProfiles.has(pKey)) {
-      processedRefProfiles.add(pKey);
-      rawReferralBalance += (p.referralBalance || 0);
-      totalReferrals += (p.totalReferrals || 0);
+    if (telegramChatId) {
+      try {
+        const q3 = query(profilesRef, where("telegramChatId", "==", String(telegramChatId)));
+        const s3 = await getDocs(q3);
+        s3.forEach(d => matchingProfilesMap.set(d.id, d.data()));
+      } catch (e) {}
     }
-  });
 
-  // Calculate percentage commission earned from referred users' approved work
-  let referredWorkEarnings = 0;
-  const referralCommissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+    const matchingProfiles = Array.from(matchingProfilesMap.values());
+    const searchIds = new Set<string>();
+    if (walletNumber) searchIds.add(walletNumber);
+    if (telegramChatId) searchIds.add(String(telegramChatId));
 
-  for (const sid of Array.from(searchIds)) {
-    if (!sid) continue;
-    try {
-      const refUsersQuery = query(profilesRef, where("referredBy", "==", sid));
-      const refUsersSnap = await getDocs(refUsersQuery);
-      
-      for (const refDoc of refUsersSnap.docs) {
-        const refUserData = refDoc.data();
-        const refUserIds = new Set<string>();
-        if (refUserData.telegramChatId) refUserIds.add(String(refUserData.telegramChatId));
-        if (refUserData.walletNumber) refUserIds.add(refUserData.walletNumber);
-        if (refUserData.payoutNumber) refUserIds.add(refUserData.payoutNumber);
+    matchingProfiles.forEach(pData => {
+      if (pData?.walletNumber) searchIds.add(pData.walletNumber);
+      if (pData?.telegramChatId) searchIds.add(String(pData.telegramChatId));
+      if (pData?.payoutNumber) searchIds.add(pData.payoutNumber);
+    });
 
-        for (const rId of Array.from(refUserIds)) {
-          if (!rId) continue;
-          const refSubQuery = query(submissionsRef, where("submittedBy", "==", rId), where("status", "==", "approved"));
-          const refSubSnap = await getDocs(refSubQuery);
-          refSubSnap.forEach(sDoc => {
-            const sData = sDoc.data();
-            const sRate = sData.rate !== undefined ? sData.rate : (sData.category === 'facebook' ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45));
-            referredWorkEarnings += sRate;
-          });
+    for (const sid of Array.from(searchIds)) {
+      if (!sid) continue;
+      try {
+        const q1 = query(submissionsRef, where("submittedBy", "==", sid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach(docSnap => {
+          uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+      } catch (e) {}
+
+      try {
+        const q2 = query(submissionsRef, where("telegramChatId", "==", sid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach(docSnap => {
+          uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+      } catch (e) {}
+    }
+
+    const userSubmissions = Array.from(uniqueSubmissions.values());
+
+    const approvedCount = userSubmissions.filter(s => s.status === "approved").length;
+    const pendingCount = userSubmissions.filter(s => s.status === "pending").length;
+    const rejectedCount = userSubmissions.filter(s => s.status === "rejected").length;
+
+    // Fetch extra preserved earnings & bonus balance from ALL matching user profiles in Firestore
+    let extraEarnings = 0;
+    matchingProfiles.forEach(p => {
+      extraEarnings += (p.accumulatedApprovedEarnings || 0) + (p.bonusBalance || 0);
+    });
+
+    // Calculate rate based on category
+    const activeEarned = userSubmissions
+      .filter(s => s.status === "approved")
+      .reduce((sum, s) => {
+        if (s.rate !== undefined && s.rate > 0) {
+          return sum + s.rate;
         }
-      }
-    } catch (refErr) {
-      console.error("Error calculating referral commission:", refErr);
+        const isFacebook = s.category === "facebook";
+        const rate = isFacebook ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45);
+        return sum + rate;
+      }, 0);
+
+    const totalEarned = activeEarned + extraEarnings;
+
+    // Fetch withdrawals for this user (by telegramChatId and/or walletNumber)
+    const withdrawalsRef = collection(db, "withdrawals");
+    const uniqueWithdrawals = new Map<string, any>();
+
+    if (telegramChatId) {
+      try {
+        const wQuery1 = query(withdrawalsRef, where("telegramChatId", "==", String(telegramChatId)));
+        const wSnap1 = await getDocs(wQuery1);
+        wSnap1.forEach(docSnap => {
+          uniqueWithdrawals.set(docSnap.id, docSnap.data());
+        });
+      } catch (e) {}
     }
+
+    if (walletNumber) {
+      try {
+        const wQuery2 = query(withdrawalsRef, where("submittedBy", "==", walletNumber));
+        const wSnap2 = await getDocs(wQuery2);
+        wSnap2.forEach(docSnap => {
+          uniqueWithdrawals.set(docSnap.id, docSnap.data());
+        });
+      } catch (e) {}
+    }
+
+    const withdrawals = Array.from(uniqueWithdrawals.values());
+
+    // Fetch referral stats & commission from ALL matching user profiles in Firestore
+    let rawReferralBalance = 0;
+    let totalReferrals = 0;
+    const processedRefProfiles = new Set<string>();
+
+    matchingProfiles.forEach(p => {
+      const pKey = p.walletNumber || p.telegramChatId || p.payoutNumber;
+      if (pKey && !processedRefProfiles.has(pKey)) {
+        processedRefProfiles.add(pKey);
+        rawReferralBalance += (p.referralBalance || 0);
+        totalReferrals += (p.totalReferrals || 0);
+      }
+    });
+
+    // Calculate percentage commission earned from referred users' approved work
+    let referredWorkEarnings = 0;
+    const referralCommissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+
+    for (const sid of Array.from(searchIds)) {
+      if (!sid) continue;
+      try {
+        const refUsersQuery = query(profilesRef, where("referredBy", "==", sid));
+        const refUsersSnap = await getDocs(refUsersQuery);
+        
+        for (const refDoc of refUsersSnap.docs) {
+          const refUserData = refDoc.data();
+          const refUserIds = new Set<string>();
+          if (refUserData.telegramChatId) refUserIds.add(String(refUserData.telegramChatId));
+          if (refUserData.walletNumber) refUserIds.add(refUserData.walletNumber);
+          if (refUserData.payoutNumber) refUserIds.add(refUserData.payoutNumber);
+
+          for (const rId of Array.from(refUserIds)) {
+            if (!rId) continue;
+            try {
+              const refSubQuery = query(submissionsRef, where("submittedBy", "==", rId), where("status", "==", "approved"));
+              const refSubSnap = await getDocs(refSubQuery);
+              refSubSnap.forEach(sDoc => {
+                const sData = sDoc.data();
+                const sRate = sData.rate !== undefined ? sData.rate : (sData.category === 'facebook' ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45));
+                referredWorkEarnings += sRate;
+              });
+            } catch (e) {}
+          }
+        }
+      } catch (refErr) {
+        console.error("Error calculating referral commission:", refErr);
+      }
+    }
+
+    const referralCommissionEarned = Math.round(referredWorkEarnings * (referralCommissionPercent / 100));
+    const totalRawReferralBalance = rawReferralBalance + referralCommissionEarned;
+
+    const approvedMainWithdrawn = withdrawals
+      .filter(w => w.status === "approved" && w.balanceType !== "referral")
+      .reduce((sum, current) => sum + current.amount, 0);
+
+    const pendingMainWithdrawn = withdrawals
+      .filter(w => w.status === "pending" && w.balanceType !== "referral")
+      .reduce((sum, current) => sum + current.amount, 0);
+
+    const approvedReferralWithdrawn = withdrawals
+      .filter(w => w.status === "approved" && w.balanceType === "referral")
+      .reduce((sum, current) => sum + current.amount, 0);
+
+    const pendingReferralWithdrawn = withdrawals
+      .filter(w => w.status === "pending" && w.balanceType === "referral")
+      .reduce((sum, current) => sum + current.amount, 0);
+
+    const mainBalance = Math.max(0, totalEarned - approvedMainWithdrawn - pendingMainWithdrawn);
+    const referralBalance = Math.max(0, totalRawReferralBalance - approvedReferralWithdrawn - pendingReferralWithdrawn);
+
+    const statsData = {
+      approvedCount,
+      pendingCount,
+      rejectedCount,
+      totalEarned,
+      approvedWithdrawn: approvedMainWithdrawn,
+      pendingWithdrawn: pendingMainWithdrawn,
+      approvedReferralWithdrawn,
+      pendingReferralWithdrawn,
+      balance: mainBalance,
+      referralBalance,
+      rawReferralBalance,
+      totalReferrals,
+      ratePerId
+    };
+
+    userStatsCache.set(cacheKey, { data: statsData, time: now });
+    return statsData;
+  } catch (err: any) {
+    if (cached) {
+      return cached.data;
+    }
+    if (err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota")) {
+      throw new Error("Quota limit exceeded");
+    }
+    throw err;
   }
-
-  const referralCommissionEarned = Math.round(referredWorkEarnings * (referralCommissionPercent / 100));
-  const totalRawReferralBalance = rawReferralBalance + referralCommissionEarned;
-
-  const approvedMainWithdrawn = withdrawals
-    .filter(w => w.status === "approved" && w.balanceType !== "referral")
-    .reduce((sum, current) => sum + current.amount, 0);
-
-  const pendingMainWithdrawn = withdrawals
-    .filter(w => w.status === "pending" && w.balanceType !== "referral")
-    .reduce((sum, current) => sum + current.amount, 0);
-
-  const approvedReferralWithdrawn = withdrawals
-    .filter(w => w.status === "approved" && w.balanceType === "referral")
-    .reduce((sum, current) => sum + current.amount, 0);
-
-  const pendingReferralWithdrawn = withdrawals
-    .filter(w => w.status === "pending" && w.balanceType === "referral")
-    .reduce((sum, current) => sum + current.amount, 0);
-
-  const mainBalance = Math.max(0, totalEarned - approvedMainWithdrawn - pendingMainWithdrawn);
-  const referralBalance = Math.max(0, totalRawReferralBalance - approvedReferralWithdrawn - pendingReferralWithdrawn);
-
-  return {
-    approvedCount,
-    pendingCount,
-    rejectedCount,
-    totalEarned,
-    approvedWithdrawn: approvedMainWithdrawn,
-    pendingWithdrawn: pendingMainWithdrawn,
-    approvedReferralWithdrawn,
-    pendingReferralWithdrawn,
-    balance: mainBalance,
-    referralBalance,
-    rawReferralBalance,
-    totalReferrals,
-    ratePerId
-  };
 }
 
 // --- Helper: Safe Message Deletion ---
@@ -505,15 +532,12 @@ async function isUserMemberOfGroup(bot: TelegramBot, chatId: number): Promise<{ 
   let methodChannel = "@eranpointmethod";
 
   try {
-    const settingsSnap = await getDoc(doc(db, "settings", "global"));
-    if (settingsSnap.exists()) {
-      const s = settingsSnap.data();
-      if (s.forceJoinGroup !== undefined && String(s.forceJoinGroup).trim() !== "") {
-        targetGroup = String(s.forceJoinGroup).trim();
-      }
-      if (s.forceJoinMethodChannel !== undefined && String(s.forceJoinMethodChannel).trim() !== "") {
-        methodChannel = String(s.forceJoinMethodChannel).trim();
-      }
+    const s = await getGlobalSettings();
+    if (s.forceJoinGroup !== undefined && String(s.forceJoinGroup).trim() !== "") {
+      targetGroup = String(s.forceJoinGroup).trim();
+    }
+    if (s.forceJoinMethodChannel !== undefined && String(s.forceJoinMethodChannel).trim() !== "") {
+      methodChannel = String(s.forceJoinMethodChannel).trim();
     }
   } catch (e) {
     // ignore fetch error
@@ -583,15 +607,12 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
   let methodUrl = "https://t.me/eranpointmethod";
 
   try {
-    const settingsSnap = await getDoc(doc(db, "settings", "global"));
-    if (settingsSnap.exists()) {
-      const s = settingsSnap.data();
-      if (s.forceJoinGroup) {
-        mainUrl = getChannelUrl(String(s.forceJoinGroup));
-      }
-      if (s.forceJoinMethodChannel) {
-        methodUrl = getChannelUrl(String(s.forceJoinMethodChannel));
-      }
+    const s = await getGlobalSettings();
+    if (s.forceJoinGroup) {
+      mainUrl = getChannelUrl(String(s.forceJoinGroup));
+    }
+    if (s.forceJoinMethodChannel) {
+      methodUrl = getChannelUrl(String(s.forceJoinMethodChannel));
     }
   } catch (e) {}
 
@@ -631,12 +652,9 @@ async function showForceJoinPrompt(bot: TelegramBot, chatId: number, isVerifyRet
 // --- Core Telegram Message Handlers ---
 async function getAdminChatId(): Promise<string> {
   try {
-    const settingsSnap = await getDoc(doc(db, "settings", "global"));
-    if (settingsSnap.exists()) {
-      const sData = settingsSnap.data();
-      if (sData.telegramChatId) {
-        return String(sData.telegramChatId).trim();
-      }
+    const sData = await getGlobalSettings();
+    if (sData && sData.telegramChatId) {
+      return String(sData.telegramChatId).trim();
     }
   } catch (err) {
     console.error("Error fetching settings for admin authorization:", err);
@@ -851,11 +869,9 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       let referredByVal = "";
       if (referrerChatId && referrerChatId !== String(chatId)) {
         try {
-          const settingsRef = doc(db, "settings", "global");
-          const settingsSnap = await getDoc(settingsRef);
-          const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+          const settings = await getGlobalSettings();
 
-          if (settings.referralSystemEnabled !== false) {
+          if (settings && settings.referralSystemEnabled !== false) {
             const refQ = query(profilesRef, where("telegramChatId", "==", referrerChatId), limit(1));
             const refSnap = await getDocs(refQ);
 
@@ -956,9 +972,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       let isWorkActive = true;
       let fbRate = 45;
       try {
-        const settingsSnap = await getDoc(doc(db, "settings", "global"));
-        if (settingsSnap.exists()) {
-          const sData = settingsSnap.data();
+        const sData = await getGlobalSettings();
+        if (sData) {
           if (sData.facebookWorkActive === false) {
             isWorkActive = false;
           }
@@ -993,9 +1008,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       let isWorkActive = true;
       let instaRate = 45;
       try {
-        const settingsSnap = await getDoc(doc(db, "settings", "global"));
-        if (settingsSnap.exists()) {
-          const sData = settingsSnap.data();
+        const sData = await getGlobalSettings();
+        if (sData) {
           if (sData.instagramWorkActive === false) {
             isWorkActive = false;
           }
@@ -1030,9 +1044,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       let isWorkActive = true;
       let password = "";
       try {
-        const settingsSnap = await getDoc(doc(db, "settings", "global"));
-        if (settingsSnap.exists()) {
-          const sData = settingsSnap.data();
+        const sData = await getGlobalSettings();
+        if (sData) {
           password = sData.facebookPassword || "";
           if (sData.facebookWorkActive === false) {
             isWorkActive = false;
@@ -1093,9 +1106,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       let customDailyPassword = "";
       let isWorkActive = true;
       try {
-        const settingsSnap = await getDoc(doc(db, "settings", "global"));
-        if (settingsSnap.exists()) {
-          const sData = settingsSnap.data();
+        const sData = await getGlobalSettings();
+        if (sData) {
           customPrefix = sData.usernamePrefix || "";
           customDailyPassword = sData.dailyPassword || "";
           if (sData.instagramWorkActive === false) {
@@ -1201,14 +1213,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (text === "👥 রেফারেল লিংক") {
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+      const settings = await getGlobalSettings();
       
       const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
-      const botUsername = settings.botUsername || "accounttradecenterXincome_bot";
-      const commissionPercent = settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
-      const minRefLimit = settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500;
+      const botUsername = settings?.botUsername || "accounttradecenterXincome_bot";
+      const commissionPercent = settings?.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+      const minRefLimit = settings?.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500;
 
       const refLink = `https://t.me/${botUsername}?start=ref_${chatId}`;
 
@@ -1236,9 +1246,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
 
     if (text === "💸 ব্যালেন্স উত্তোলন") {
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : { withdrawalsEnabled: true };
+      const settings = await getGlobalSettings();
 
       if (settings.withdrawalsEnabled === false) {
         await bot.sendMessage(chatId, `⚠️ <b>দুঃখিত!</b>\n\nএডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন। ধন্যবাদ!`, {
@@ -1482,10 +1490,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       }
 
       // Get current settings
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-      const fbRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
+      const settings = await getGlobalSettings();
+      const fbRate = settings?.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings?.ratePerId || 45);
 
       const newSub = {
         username: fd.uid,
@@ -1602,9 +1608,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       }
 
       // Get current rate
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      const settings = settingsSnap.exists() ? settingsSnap.data() : { ratePerId: 45 };
+      const settings = await getGlobalSettings();
       const ratePerId = settings.ratePerId || 45;
 
       const newSub = {
@@ -1770,9 +1774,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    const settingsRef = doc(db, "settings", "global");
-    const settingsSnap = await getDoc(settingsRef);
-    const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+    const settings = await getGlobalSettings();
     const stats = await getUserStats(profile.walletNumber || "", profile.telegramChatId);
 
     let chosenType: 'main' | 'referral' | null = null;
@@ -1888,12 +1890,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       selectedMethod = 'Rocket';
     }
 
-    const settingsRef = doc(db, "settings", "global");
-    const settingsSnap = await getDoc(settingsRef);
-    const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-    const bkashActive = settings.bkashEnabled !== false;
-    const nagadActive = settings.nagadEnabled !== false;
-    const rocketActive = settings.rocketEnabled !== false;
+    const settings = await getGlobalSettings();
+    const bkashActive = settings?.bkashEnabled !== false;
+    const nagadActive = settings?.nagadEnabled !== false;
+    const rocketActive = settings?.rocketEnabled !== false;
 
     if (!selectedMethod) {
       await bot.sendMessage(chatId, `❌ অনুগ্রহ করে নিচের কীবোর্ড থেকে সঠিক ওয়ালেট ধরণটি বেছে নিন:`, {
@@ -2052,9 +2052,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
   // --- Step: Awaiting Withdraw Amount ---
   if (state.step === "awaiting_withdraw_amount") {
-    const settingsRef = doc(db, "settings", "global");
-    const settingsSnap = await getDoc(settingsRef);
-    const settings = settingsSnap.exists() ? settingsSnap.data() : { withdrawalsEnabled: true };
+    const settings = await getGlobalSettings();
 
     if (settings.withdrawalsEnabled === false) {
       state.step = "main_menu";
@@ -2370,11 +2368,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
     }
 
     if (!settings) {
-      const settingsRef = doc(db, "settings", "global");
-      const settingsSnap = await getDoc(settingsRef);
-      if (settingsSnap.exists()) {
-        settings = settingsSnap.data();
-      }
+      const settings = await getGlobalSettings();
     }
 
     if (!settings) return;
@@ -2430,9 +2424,13 @@ export async function syncTelegramBot(isFromWebhook = false) {
       try {
         await handleBotMessage(bot, chatId, text, msg);
       } catch (err: any) {
-        console.error("Error handling telegram bot message:", err);
+        console.error("Error handling telegram bot message:", err?.message || err);
         try {
-          await bot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
+          const isQuota = err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota") || String(err).includes("quota");
+          const userMsg = isQuota
+            ? "⚠️ সার্ভার কোটা লিমিট সাময়িকভাবে পূর্ণ হয়েছে। ফায়ারবেসের দৈনিক ফ্রি রিড লিমিট (Daily Free Quota) শেষ হওয়াতে সাময়িক বিলম্ব হচ্ছে। অনুগ্রহ করে কিছুক্ষণ পর বা নতুন দিনে চেষ্টা করুন।"
+            : `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`;
+          await bot.sendMessage(chatId, userMsg);
         } catch (sendErr) {
           console.error("Error sending error message:", sendErr);
         }

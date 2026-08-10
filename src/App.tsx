@@ -72,6 +72,7 @@ export default function App() {
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
 
   // Auto admin login from sessionStorage
   useEffect(() => {
@@ -349,9 +350,6 @@ export default function App() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Run self-healing user ID restoration
-      await fixAndRestoreUserIds();
-
       const fetchedSettings = await getSettings();
       setAppSettings(fetchedSettings);
 
@@ -363,8 +361,13 @@ export default function App() {
 
       const fetchedProfiles = await getAllUserProfiles();
       setAllProfiles(fetchedProfiles);
-    } catch (e) {
-      console.error("Error loading data:", e);
+
+      setIsQuotaExceeded(false);
+    } catch (e: any) {
+      console.warn("Notice loading data:", e?.message || e);
+      if (e?.message?.includes("Quota limit exceeded") || e?.message?.includes("quota")) {
+        setIsQuotaExceeded(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -372,7 +375,7 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
-    const interval = setInterval(loadAllData, 20000); // Poll every 20 seconds
+    const interval = setInterval(loadAllData, 45000); // Poll every 45 seconds to conserve quota
     return () => clearInterval(interval);
   }, []);
 
@@ -1463,6 +1466,17 @@ export default function App() {
 
   return (
     <div id="app-root">
+      {isQuotaExceeded && (
+        <div className="bg-amber-950/90 border-b border-amber-600/40 text-amber-200 px-4 py-2.5 text-xs sm:text-sm flex items-center justify-between gap-2 z-50 sticky top-0 shadow-lg">
+          <div className="flex items-center gap-2">
+            <span className="bg-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded border border-amber-500/30">⚠️ সার্ভার নোটিশ</span>
+            <span>ডাটাবেজের দৈনিক ফ্রি কোটা (Quota Limit) পূর্ণ হয়েছে। কিছুটা সময় পর বা নতুন দিন শুরু হলে সম্পূর্ণ ডাটা লোড হবে।</span>
+          </div>
+          <button onClick={() => loadAllData()} className="bg-amber-600/30 hover:bg-amber-600/50 text-amber-100 text-xs px-3 py-1 rounded border border-amber-500/40 font-medium whitespace-nowrap transition-colors">
+            রিফ্রেশ
+          </button>
+        </div>
+      )}
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col md:flex-row overflow-hidden">
         {/* Mobile Header Banner */}
         <div className="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40">

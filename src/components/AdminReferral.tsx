@@ -310,8 +310,8 @@ export default function AdminReferral({
                   </td>
                 </tr>
               ) : (
-                filteredProfiles.map((profile) => (
-                  <tr key={profile.id || profile.telegramChatId} className="hover:bg-slate-800/30 transition-colors">
+                filteredProfiles.map((profile, index) => (
+                  <tr key={profile.id || (profile.telegramChatId ? `chat-${profile.telegramChatId}` : `profile-${index}`)} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3.5 px-4 font-bold text-white">
                       {profile.walletNumber || profile.payoutNumber || profile.telegramChatId || 'N/A'}
                     </td>

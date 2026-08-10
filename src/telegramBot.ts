@@ -60,6 +60,34 @@ interface BotState {
 
 const userStates = new Map<number, BotState>();
 
+const MAINTENANCE_MSG = "⚠️ বটটি বর্তমানে মেইনটেনেন্সের (Maintenance) মধ্যে আছে। দুপুর ২:০০ টায় এটি আবার স্বাভাবিকভাবে চালু হবে। অনুগ্রহ করে অপেক্ষা করুন।";
+
+export function checkRethrowQuota(err: any) {
+  if (!err) return;
+  const errStr = String(err?.message || err || "").toLowerCase();
+  if (
+    errStr.includes("quota limit exceeded") ||
+    errStr.includes("quota") ||
+    errStr.includes("resource_exhausted") ||
+    errStr.includes("429")
+  ) {
+    throw err;
+  }
+}
+
+export function getErrorMessage(err: any): string {
+  const errStr = String(err?.message || err || "").toLowerCase();
+  const isQuota =
+    errStr.includes("quota limit exceeded") ||
+    errStr.includes("quota") ||
+    errStr.includes("resource_exhausted") ||
+    errStr.includes("429");
+  if (isQuota) {
+    return MAINTENANCE_MSG;
+  }
+  return `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`;
+}
+
 // --- Helper: Base32 decoding and TOTP code generation ---
 function base32ToBytes(base32: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -189,9 +217,13 @@ export async function getGlobalSettings(forceRefresh = false) {
     }
   } catch (err: any) {
     if (cachedSettings) return cachedSettings;
-    console.error("Error fetching global settings:", err?.message || err);
+    if (err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota")) {
+      console.warn("[Quota Limit] Using fallback settings for Telegram Bot.");
+    } else {
+      console.warn("Notice fetching global settings:", err?.message || err);
+    }
   }
-  return cachedSettings || { ratePerId: 45 };
+  return cachedSettings || { ratePerId: 45, facebookRatePerId: 45, instagramRatePerId: 45 };
 }
 
 const userStatsCache = new Map<string, { data: any; time: number }>();
@@ -229,19 +261,19 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
       try {
         const pDoc = await getDoc(doc(db, "profiles", walletNumber));
         if (pDoc.exists()) matchingProfilesMap.set(pDoc.id, pDoc.data());
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
 
       try {
         const q1 = query(profilesRef, where("walletNumber", "==", walletNumber));
         const s1 = await getDocs(q1);
         s1.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
 
       try {
         const q2 = query(profilesRef, where("payoutNumber", "==", walletNumber));
         const s2 = await getDocs(q2);
         s2.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
     }
 
     if (telegramChatId) {
@@ -249,7 +281,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         const q3 = query(profilesRef, where("telegramChatId", "==", String(telegramChatId)));
         const s3 = await getDocs(q3);
         s3.forEach(d => matchingProfilesMap.set(d.id, d.data()));
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
     }
 
     const matchingProfiles = Array.from(matchingProfilesMap.values());
@@ -271,7 +303,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         snap1.forEach(docSnap => {
           uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
         });
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
 
       try {
         const q2 = query(submissionsRef, where("telegramChatId", "==", sid));
@@ -279,7 +311,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         snap2.forEach(docSnap => {
           uniqueSubmissions.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
         });
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
     }
 
     const userSubmissions = Array.from(uniqueSubmissions.values());
@@ -319,7 +351,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         wSnap1.forEach(docSnap => {
           uniqueWithdrawals.set(docSnap.id, docSnap.data());
         });
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
     }
 
     if (walletNumber) {
@@ -329,7 +361,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         wSnap2.forEach(docSnap => {
           uniqueWithdrawals.set(docSnap.id, docSnap.data());
         });
-      } catch (e) {}
+      } catch (e) { checkRethrowQuota(e); }
     }
 
     const withdrawals = Array.from(uniqueWithdrawals.values());
@@ -2321,9 +2353,9 @@ export async function handleWebhookUpdate(update: any) {
     try {
       await handleBotMessage(currentBot, chatId, text, msg);
     } catch (err: any) {
-      console.error("Error handling telegram bot message in webhook:", err);
+      console.error("Error handling telegram bot message in webhook:", err?.message || err);
       try {
-        await currentBot.sendMessage(chatId, `❌ একটি ভুল হয়েছে: ${err.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`);
+        await currentBot.sendMessage(chatId, getErrorMessage(err));
       } catch (sendErr) {
         console.error("Error sending error message:", sendErr);
       }
@@ -2331,8 +2363,14 @@ export async function handleWebhookUpdate(update: any) {
   } else if (update.callback_query) {
     try {
       await handleCallbackQuery(currentBot, update.callback_query);
-    } catch (err) {
-      console.error("Error processing callback query in webhook:", err);
+    } catch (err: any) {
+      console.error("Error processing callback query in webhook:", err?.message || err);
+      try {
+        const chatId = update.callback_query.message?.chat?.id;
+        if (chatId) {
+          await currentBot.sendMessage(chatId, getErrorMessage(err));
+        }
+      } catch (sendErr) {}
     }
   } else {
     // Fallback for other update types (e.g., edited_message, etc.)
@@ -2363,8 +2401,8 @@ export async function syncTelegramBot(isFromWebhook = false) {
           };
         }
       }
-    } catch (e) {
-      console.error("Fast REST fetch settings error:", e);
+    } catch (e: any) {
+      console.warn("Notice: Fast REST fetch settings error:", e?.message || e);
     }
 
     if (!settings) {
@@ -2426,11 +2464,7 @@ export async function syncTelegramBot(isFromWebhook = false) {
       } catch (err: any) {
         console.error("Error handling telegram bot message:", err?.message || err);
         try {
-          const isQuota = err?.message?.includes("Quota limit exceeded") || err?.message?.includes("quota") || String(err).includes("quota");
-          const userMsg = isQuota
-            ? "⚠️ সার্ভার কোটা লিমিট সাময়িকভাবে পূর্ণ হয়েছে। ফায়ারবেসের দৈনিক ফ্রি রিড লিমিট (Daily Free Quota) শেষ হওয়াতে সাময়িক বিলম্ব হচ্ছে। অনুগ্রহ করে কিছুক্ষণ পর বা নতুন দিনে চেষ্টা করুন।"
-            : `❌ একটি ভুল হয়েছে: ${err?.message || 'অনুগ্রহ করে আবার চেষ্টা করুন।'}`;
-          await bot.sendMessage(chatId, userMsg);
+          await bot.sendMessage(chatId, getErrorMessage(err));
         } catch (sendErr) {
           console.error("Error sending error message:", sendErr);
         }
@@ -2441,8 +2475,14 @@ export async function syncTelegramBot(isFromWebhook = false) {
     bot.on("callback_query", async (callbackQuery) => {
       try {
         await handleCallbackQuery(bot, callbackQuery);
-      } catch (err) {
-        console.error("Error processing callback query:", err);
+      } catch (err: any) {
+        console.error("Error processing callback query:", err?.message || err);
+        try {
+          const chatId = callbackQuery.message?.chat?.id;
+          if (chatId) {
+            await bot.sendMessage(chatId, getErrorMessage(err));
+          }
+        } catch (sendErr) {}
       }
     });
 
@@ -2505,8 +2545,12 @@ export async function syncTelegramBot(isFromWebhook = false) {
       console.log("⚡ Telegram Bot successfully initialized in Polling Mode and polling started!");
     }
 
-  } catch (error) {
-    console.error("Error syncing Telegram bot settings:", error);
+  } catch (error: any) {
+    if (error?.message?.includes("Quota limit exceeded") || error?.message?.includes("quota")) {
+      console.warn("[Quota Limit] Notice in syncTelegramBot: Quota limit reached.");
+    } else {
+      console.warn("Notice in syncTelegramBot:", error?.message || error);
+    }
   }
 }
 

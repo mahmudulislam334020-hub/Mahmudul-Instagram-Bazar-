@@ -622,6 +622,7 @@ export default function App() {
     // Notify user via Telegram
     const sub = submissions.find(s => s.id === id);
     if (sub) {
+      const effectiveRate = overrideRate !== undefined && overrideRate >= 0 ? overrideRate : sub.rate;
       try {
         const res = await fetch("/api/telegram-direct-notify", {
           method: "POST",
@@ -629,7 +630,11 @@ export default function App() {
           body: JSON.stringify({
             targetWalletNumber: sub.submittedBy,
             type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-            details: { username: sub.username, category: sub.category }
+            details: { 
+              username: sub.username, 
+              category: sub.category,
+              rate: effectiveRate
+            }
           })
         });
         const data = await res.json();
@@ -814,10 +819,11 @@ export default function App() {
       
       const sub = submissions.find(s => s.id === id);
       if (sub) {
+        const subWithRate = { ...sub, rate: overrideRate !== undefined && overrideRate >= 0 ? overrideRate : sub.rate };
         if (!subsToNotify[sub.submittedBy]) {
           subsToNotify[sub.submittedBy] = [];
         }
-        subsToNotify[sub.submittedBy].push(sub);
+        subsToNotify[sub.submittedBy].push(subWithRate);
       }
     }
 
@@ -826,6 +832,7 @@ export default function App() {
       const userSubs = subsToNotify[walletNumber];
       if (userSubs.length === 1) {
         const sub = userSubs[0];
+        const effectiveRate = overrideRate !== undefined && overrideRate >= 0 ? overrideRate : sub.rate;
         try {
           const res = await fetch("/api/telegram-direct-notify", {
             method: "POST",
@@ -833,7 +840,11 @@ export default function App() {
             body: JSON.stringify({
               targetWalletNumber: walletNumber,
               type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-              details: { username: sub.username, category: sub.category }
+              details: { 
+                username: sub.username, 
+                category: sub.category,
+                rate: effectiveRate
+              }
             })
           });
           const data = await res.json();
@@ -849,7 +860,11 @@ export default function App() {
           showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
         }
       } else if (userSubs.length > 1) {
-        const items = userSubs.map(s => ({ username: s.username, category: s.category }));
+        const items = userSubs.map(s => ({ 
+          username: s.username, 
+          category: s.category,
+          rate: overrideRate !== undefined && overrideRate >= 0 ? overrideRate : s.rate 
+        }));
         try {
           const res = await fetch("/api/telegram-direct-notify", {
             method: "POST",
@@ -938,10 +953,11 @@ export default function App() {
       updatedIds.push(sub.id);
       processedCount++;
 
+      const subWithRate = { ...sub, rate: overrideRate !== undefined && overrideRate >= 0 ? overrideRate : sub.rate };
       if (!subsToNotify[sub.submittedBy]) {
         subsToNotify[sub.submittedBy] = [];
       }
-      subsToNotify[sub.submittedBy].push(sub);
+      subsToNotify[sub.submittedBy].push(subWithRate);
     }
 
     // Send grouped/consolidated notifications
@@ -949,6 +965,7 @@ export default function App() {
       const userSubs = subsToNotify[walletNumber];
       if (userSubs.length === 1) {
         const sub = userSubs[0];
+        const effectiveRate = overrideRate !== undefined && overrideRate >= 0 ? overrideRate : sub.rate;
         try {
           const res = await fetch("/api/telegram-direct-notify", {
             method: "POST",
@@ -956,7 +973,11 @@ export default function App() {
             body: JSON.stringify({
               targetWalletNumber: walletNumber,
               type: newStatus === 'approved' ? 'id_approved' : 'id_rejected',
-              details: { username: sub.username, category: sub.category }
+              details: { 
+                username: sub.username, 
+                category: sub.category,
+                rate: effectiveRate
+              }
             })
           });
           const data = await res.json();
@@ -972,7 +993,11 @@ export default function App() {
           showAdminToast(`❌ নোটিফিকেশন পাঠাতে সার্ভার বা কানেকশন ত্রুটি।`, 'error');
         }
       } else if (userSubs.length > 1) {
-        const items = userSubs.map(s => ({ username: s.username, category: s.category }));
+        const items = userSubs.map(s => ({ 
+          username: s.username, 
+          category: s.category,
+          rate: overrideRate !== undefined && overrideRate >= 0 ? overrideRate : s.rate 
+        }));
         try {
           const res = await fetch("/api/telegram-direct-notify", {
             method: "POST",

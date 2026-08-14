@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { initTelegramBot, handleWebhookUpdate } from "./src/telegramBot";
+import { initTelegramBot, handleWebhookUpdate, invalidateUserStatsCache } from "./src/telegramBot";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
@@ -250,9 +250,12 @@ app.use((req, res, next) => {
       let text = "";
       if (type === "id_approved") {
         const isFacebook = details?.category === "facebook";
-        const rate = isFacebook 
+        const defaultRate = isFacebook 
           ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
           : settings.ratePerId;
+        const rate = (details?.rate !== undefined && Number(details.rate) >= 0)
+          ? Number(details.rate)
+          : defaultRate;
         const workName = isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ";
         const idLabel = isFacebook ? "UID" : "ইউজারনেম";
         
@@ -276,18 +279,23 @@ app.use((req, res, next) => {
         if (Array.isArray(items)) {
           items.forEach((item: any) => {
             const isFacebook = item.category === "facebook";
-            const rate = isFacebook 
+            const defaultRate = isFacebook 
               ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
               : settings.ratePerId;
+            const rate = (item.rate !== undefined && Number(item.rate) >= 0)
+              ? Number(item.rate)
+              : defaultRate;
             totalAmount += rate;
             const idLabel = isFacebook ? "UID" : "ইউজারনেম";
             itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (৳${rate} Taka)\n`;
           });
         }
 
+        const formattedTotal = Number(totalAmount.toFixed(2));
+
         text = `✅ <b>আপনার ${totalCount} টি কাজ অনুমোদিত হয়েছে! (IDs Approved)</b>\n\n` +
                itemsListText + `\n` +
-               `💵 <b>মোট জমা:</b> ৳<b>${totalAmount}</b> Taka\n` +
+               `💵 <b>মোট জমা:</b> ৳<b>${formattedTotal}</b> Taka\n` +
                `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার শুরু করুন!`;
       } else if (type === "id_bulk_rejected") {
         const totalCount = items?.length || 0;
@@ -342,6 +350,7 @@ app.use((req, res, next) => {
       });
 
       const data = await response.json();
+      invalidateUserStatsCache();
       res.status(200).json({ status: "success", telegramResponse: data });
     } catch (error: any) {
       console.error("Error sending user direct notification:", error);

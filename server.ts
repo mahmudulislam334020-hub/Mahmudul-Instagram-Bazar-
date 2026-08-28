@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { initTelegramBot, handleWebhookUpdate, invalidateUserStatsCache } from "./src/telegramBot";
+import { initTelegramBot, handleWebhookUpdate, invalidateUserStatsCache, invalidateSettingsCache } from "./src/telegramBot";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
@@ -26,6 +26,13 @@ try {
   console.error("Error reading firebase-applet-config.json inside server.ts:", err);
 }
 
+function parseFirestoreNum(field: any, defaultVal: number = 0): number {
+  if (!field) return defaultVal;
+  if (field.doubleValue !== undefined) return parseFloat(field.doubleValue);
+  if (field.integerValue !== undefined) return parseFloat(field.integerValue);
+  return defaultVal;
+}
+
 async function getGlobalSettings() {
   try {
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global?key=${apiKey}`;
@@ -43,13 +50,18 @@ async function getGlobalSettings() {
       telegramChatId: fields.telegramChatId?.stringValue || "",
       usernamePrefix: fields.usernamePrefix?.stringValue || "",
       dailyPassword: fields.dailyPassword?.stringValue || "",
-      minWithdraw: fields.minWithdraw?.integerValue ? parseInt(fields.minWithdraw.integerValue) : (fields.minWithdraw?.doubleValue ? parseFloat(fields.minWithdraw.doubleValue) : 50),
-      ratePerId: fields.ratePerId?.integerValue ? parseInt(fields.ratePerId.integerValue) : (fields.ratePerId?.doubleValue ? parseFloat(fields.ratePerId.doubleValue) : 45),
+      minWithdraw: parseFirestoreNum(fields.minWithdraw, 50),
+      ratePerId: parseFirestoreNum(fields.ratePerId, 45),
       facebookFirstName: fields.facebookFirstName?.stringValue || "",
       facebookLastName: fields.facebookLastName?.stringValue || "",
       facebookPassword: fields.facebookPassword?.stringValue || "",
       facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
-      facebookRatePerId: fields.facebookRatePerId?.integerValue ? parseInt(fields.facebookRatePerId.integerValue) : (fields.facebookRatePerId?.doubleValue ? parseFloat(fields.facebookRatePerId.doubleValue) : 45),
+      facebookRatePerId: parseFirestoreNum(fields.facebookRatePerId, parseFirestoreNum(fields.ratePerId, 45)),
+      fbHotmailWorkActive: fields.fbHotmailWorkActive?.booleanValue !== false,
+      fbHotmailRatePerId: parseFirestoreNum(fields.fbHotmailRatePerId, 50),
+      fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
+      fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",
+      fbHotmailLastName: fields.fbHotmailLastName?.stringValue || "",
       webhookUrl: fields.webhookUrl?.stringValue || ""
     };
   } catch (err) {
@@ -249,28 +261,32 @@ app.use((req, res, next) => {
 
       let text = "";
       if (type === "id_approved") {
+        const isFbHotmail = details?.category === "fb_hotmail";
         const isFacebook = details?.category === "facebook";
-        const defaultRate = isFacebook 
-          ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-          : settings.ratePerId;
+        const defaultRate = isFbHotmail
+          ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
+          : (isFacebook 
+            ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+            : settings.ratePerId);
         const rate = (details?.rate !== undefined && Number(details.rate) >= 0)
           ? Number(details.rate)
           : defaultRate;
-        const workName = isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ";
-        const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+        const workName = isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ");
+        const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
         
         text = `✅ <b>আপনার ${workName} অনুমোদিত হয়েছে! (ID Approved)</b>\n\n` +
                `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n` +
                `💵 <b>রেট:</b> ৳${rate} Taka\n\n` +
                `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার শুরু করুন!`;
       } else if (type === "id_rejected") {
+        const isFbHotmail = details?.category === "fb_hotmail";
         const isFacebook = details?.category === "facebook";
-        const workName = isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ";
-        const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+        const workName = isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ");
+        const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
 
         text = `❌ <b>আপনার ${workName} বাতিল করা হয়েছে! (ID Rejected)</b>\n\n` +
                `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n\n` +
-               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিটি বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
+               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ/হটমেইল টোকেন সেট না করায় আপনার আইডিটি বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
       } else if (type === "id_bulk_approved") {
         const totalCount = items?.length || 0;
         let itemsListText = "";
@@ -278,15 +294,18 @@ app.use((req, res, next) => {
         
         if (Array.isArray(items)) {
           items.forEach((item: any) => {
+            const isFbHotmail = item.category === "fb_hotmail";
             const isFacebook = item.category === "facebook";
-            const defaultRate = isFacebook 
-              ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-              : settings.ratePerId;
+            const defaultRate = isFbHotmail
+              ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
+              : (isFacebook 
+                ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+                : settings.ratePerId);
             const rate = (item.rate !== undefined && Number(item.rate) >= 0)
               ? Number(item.rate)
               : defaultRate;
             totalAmount += rate;
-            const idLabel = isFacebook ? "UID" : "ইউজারনেম";
+            const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
             itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (৳${rate} Taka)\n`;
           });
         }
@@ -303,15 +322,17 @@ app.use((req, res, next) => {
         
         if (Array.isArray(items)) {
           items.forEach((item: any) => {
+            const isFbHotmail = item.category === "fb_hotmail";
             const isFacebook = item.category === "facebook";
-            const idLabel = isFacebook ? "UID" : "ইউজারনেম";
-            itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (${isFacebook ? "ফেসবুক" : "ইনস্টাগ্রাম"})\n`;
+            const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
+            const catName = isFbHotmail ? "FB Hotmail" : (isFacebook ? "ফেসবুক" : "ইনস্টাগ্রাম");
+            itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (${catName})\n`;
           });
         }
 
         text = `❌ <b>আপনার ${totalCount} টি কাজ বাতিল করা হয়েছে! (IDs Rejected)</b>\n\n` +
                itemsListText + `\n` +
-               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ সেট না করায় আপনার আইডিগুলো বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
+               `⚠️ সঠিক তথ্য বা সক্রিয় কুকি/টু-এফএ/হটমেইল টোকেন সেট না করায় আপনার আইডিগুলো বাতিল করা হয়েছে। অনুগ্রহ করে নিয়ম মেনে আবার চেষ্টা করুন।`;
       } else if (type === "withdraw_approved") {
         const trxId = details?.transactionId || details?.trxId || "";
         const trxLine = trxId ? `🆔 <b>ট্রানজেকশন আইডি (TrxID):</b> <code>${trxId}</code>\n` : "";
@@ -351,11 +372,19 @@ app.use((req, res, next) => {
 
       const data = await response.json();
       invalidateUserStatsCache();
+      invalidateSettingsCache();
       res.status(200).json({ status: "success", telegramResponse: data });
     } catch (error: any) {
       console.error("Error sending user direct notification:", error);
       res.status(500).json({ error: error?.message || "Failed to trigger user notification" });
     }
+  });
+
+  // Admin route to invalidate Telegram and in-memory caches
+  app.post(["/api/admin/invalidate-cache", "/admin/invalidate-cache"], (req, res) => {
+    invalidateUserStatsCache();
+    invalidateSettingsCache();
+    res.json({ success: true, message: "Cache invalidated successfully." });
   });
 
   // Proxy route for Telegram notifications

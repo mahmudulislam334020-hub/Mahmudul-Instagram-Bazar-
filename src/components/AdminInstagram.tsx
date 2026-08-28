@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Submission, AppSettings, Withdrawal, UserProfile } from '../firebaseService';
 import UserDetailsModal from './UserDetailsModal';
+import ApprovalRateModal from './ApprovalRateModal';
 
 export interface AdminInstagramProps {
   settings: AppSettings;
@@ -98,6 +99,8 @@ export default function AdminInstagram({
   const [exportStatusMode, setExportStatusMode] = React.useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
   const [customApprovalRate, setCustomApprovalRate] = React.useState<number>(settings.ratePerId || 45);
   const [isBulkDeletingByPassword, setIsBulkDeletingByPassword] = React.useState(false);
+  const [showBulkApproveModal, setShowBulkApproveModal] = React.useState(false);
+  const [showPasteApproveModal, setShowPasteApproveModal] = React.useState(false);
 
   React.useEffect(() => {
     if (settings.ratePerId !== undefined) {
@@ -245,11 +248,11 @@ export default function AdminInstagram({
             <span className="text-[11px] text-emerald-400 font-bold whitespace-nowrap">রেট (৳):</span>
             <input
               type="number"
-              step="0.1"
+              step="any"
               min="0"
               value={customApprovalRate}
               onChange={(e) => setCustomApprovalRate(parseFloat(e.target.value) || 0)}
-              className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500"
+              className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500 font-mono"
               title="আইডি এপ্রুভ করার সময় প্রতিটি আইডির জন্য যে রেট ইউজার পাবে"
             />
           </div>
@@ -263,17 +266,17 @@ export default function AdminInstagram({
           </button>
 
           <button 
-            onClick={() => handleBulkSubAction('approved', customApprovalRate)}
+            onClick={() => setShowBulkApproveModal(true)}
             disabled={selectedSubIds.length === 0}
-            className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all"
+            className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
           >
-            বাল্ক অনুমোদন ({selectedSubIds.length}) [৳{customApprovalRate}]
+            বাল্ক অনুমোদন ({selectedSubIds.length}) [রেট নির্বাচন]
           </button>
 
           <button 
             onClick={() => handleBulkSubAction('rejected')}
             disabled={selectedSubIds.length === 0}
-            className="px-3.5 py-2 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all"
+            className="px-3.5 py-2 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 disabled:opacity-40 text-xs font-bold rounded-lg transition-all cursor-pointer disabled:cursor-not-allowed"
           >
             বাল্ক বাতিল ({selectedSubIds.length})
           </button>
@@ -371,11 +374,11 @@ export default function AdminInstagram({
                   <span className="text-[11px] text-emerald-400 font-bold whitespace-nowrap">অনুমোদন রেট (৳/আইডি):</span>
                   <input
                     type="number"
-                    step="0.1"
+                    step="any"
                     min="0"
                     value={customApprovalRate}
                     onChange={(e) => setCustomApprovalRate(parseFloat(e.target.value) || 0)}
-                    className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500"
+                    className="w-16 bg-slate-900 border border-slate-700 text-emerald-400 text-xs font-bold px-2 py-1 rounded text-center outline-none focus:border-emerald-500 font-mono"
                   />
                 </div>
 
@@ -383,16 +386,18 @@ export default function AdminInstagram({
                   <button
                     type="button"
                     onClick={() => handleBulkPasteAction('rejected')}
-                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                    disabled={!pastedUsernamesText.trim()}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
                   >
-                    ❌ পেস্টকৃতগুলো বাতিল করুন (Bulk Reject)
+                    ❌ পেস্টকৃতগুলো বাতিল করুন
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleBulkPasteAction('approved', customApprovalRate)}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                    onClick={() => setShowPasteApproveModal(true)}
+                    disabled={!pastedUsernamesText.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
                   >
-                    ✅ পেস্টকৃতগুলো অনুমোদন করুন (৳{customApprovalRate} রেটে)
+                    ✅ পেস্টকৃতগুলো অনুমোদন করুন (রেট যাচাই)
                   </button>
                 </div>
               </div>
@@ -1205,6 +1210,37 @@ export default function AdminInstagram({
           handleAdjustUserBalance={handleAdjustUserBalance}
         />
       )}
+
+      {/* BULK APPROVAL RATE MODAL */}
+      <ApprovalRateModal
+        isOpen={showBulkApproveModal}
+        onClose={() => setShowBulkApproveModal(false)}
+        onConfirm={(rate) => {
+          setCustomApprovalRate(rate);
+          handleBulkSubAction('approved', rate);
+        }}
+        itemCount={selectedSubIds.length}
+        defaultRate={customApprovalRate}
+        categoryName="Instagram"
+        mode="approve"
+      />
+
+      {/* BULK PASTE APPROVE RATE MODAL */}
+      <ApprovalRateModal
+        isOpen={showPasteApproveModal}
+        onClose={() => setShowPasteApproveModal(false)}
+        onConfirm={(rate) => {
+          setCustomApprovalRate(rate);
+          handleBulkPasteAction('approved', rate);
+        }}
+        itemCount={categoryFilteredSubmissions.filter(sub => {
+          const parsed = pastedUsernamesText.split(/[\s,\n]+/).map(u => u.trim().toLowerCase()).filter(Boolean);
+          return parsed.includes(sub.username.toLowerCase());
+        }).length || 1}
+        defaultRate={customApprovalRate}
+        categoryName="Instagram (পেস্টকৃত)"
+        mode="approve"
+      />
     </div>
   );
 }

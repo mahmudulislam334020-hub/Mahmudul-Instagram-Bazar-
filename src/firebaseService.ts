@@ -24,9 +24,10 @@ export interface Submission {
   status: "pending" | "approved" | "rejected";
   createdAt: string;
   submittedBy: string;
-  category?: "instagram" | "facebook";
+  category?: "instagram" | "facebook" | "fb_hotmail";
   uid?: string;
   cookie?: string;
+  hotmailToken?: string;
   firstName?: string;
   lastName?: string;
   rate?: number;
@@ -59,6 +60,11 @@ export interface AppSettings {
   facebookPassword?: string;
   facebookWorkActive?: boolean;
   facebookRatePerId?: number;
+  fbHotmailWorkActive?: boolean;
+  fbHotmailRatePerId?: number;
+  fbHotmailPassword?: string;
+  fbHotmailFirstName?: string;
+  fbHotmailLastName?: string;
   withdrawalsEnabled?: boolean;
   bkashEnabled?: boolean;
   nagadEnabled?: boolean;
@@ -122,6 +128,11 @@ const getFallbackSettings = (): AppSettings => {
     facebookPassword: "",
     facebookWorkActive: true,
     facebookRatePerId: 45,
+    fbHotmailWorkActive: true,
+    fbHotmailRatePerId: 50,
+    fbHotmailPassword: "",
+    fbHotmailFirstName: "",
+    fbHotmailLastName: "",
     withdrawalsEnabled: true,
     bkashEnabled: true,
     nagadEnabled: true,
@@ -280,9 +291,11 @@ export async function deleteSubmission(id: string): Promise<void> {
       const data = docSnap.data();
       if (data.status === "approved" && data.submittedBy) {
         const settings = await getSettings();
-        const defaultRate = data.category === "facebook" 
-          ? (settings.facebookRatePerId || settings.ratePerId || 45)
-          : (settings.ratePerId || 45);
+        const defaultRate = data.category === "fb_hotmail"
+          ? (settings.fbHotmailRatePerId || settings.facebookRatePerId || settings.ratePerId || 45)
+          : (data.category === "facebook" 
+            ? (settings.facebookRatePerId || settings.ratePerId || 45)
+            : (settings.ratePerId || 45));
         const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
         await preserveUserEarnings(data.submittedBy, rate);
       }
@@ -470,9 +483,11 @@ export async function clearAllSubmissions(): Promise<void> {
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();
       if (data.status === "approved" && data.submittedBy) {
-        const defaultRate = data.category === "facebook" 
-          ? (settings.facebookRatePerId || settings.ratePerId || 45)
-          : (settings.ratePerId || 45);
+        const defaultRate = data.category === "fb_hotmail"
+          ? (settings.fbHotmailRatePerId || settings.facebookRatePerId || settings.ratePerId || 45)
+          : (data.category === "facebook" 
+            ? (settings.facebookRatePerId || settings.ratePerId || 45)
+            : (settings.ratePerId || 45));
         const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
         preserveUserEarnings(data.submittedBy, rate);
       }
@@ -485,7 +500,7 @@ export async function clearAllSubmissions(): Promise<void> {
   saveFallbackSubmissions([]);
 }
 
-export async function clearSubmissionsByCategory(category: "instagram" | "facebook"): Promise<void> {
+export async function clearSubmissionsByCategory(category: "instagram" | "facebook" | "fb_hotmail"): Promise<void> {
   try {
     const settings = await getSettings();
     // Since some submissions may have category unset, we treat undefined as "instagram"
@@ -497,9 +512,11 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
       const subCategory = data.category || "instagram";
       if (subCategory === category) {
         if (data.status === "approved" && data.submittedBy) {
-          const defaultRate = category === "facebook" 
-            ? (settings.facebookRatePerId || settings.ratePerId || 45)
-            : (settings.ratePerId || 45);
+          const defaultRate = category === "fb_hotmail"
+            ? (settings.fbHotmailRatePerId || settings.facebookRatePerId || settings.ratePerId || 45)
+            : (category === "facebook" 
+              ? (settings.facebookRatePerId || settings.ratePerId || 45)
+              : (settings.ratePerId || 45));
           const rate = (data.rate !== undefined && data.rate > 0) ? data.rate : defaultRate;
           preserveUserEarnings(data.submittedBy, rate);
         }

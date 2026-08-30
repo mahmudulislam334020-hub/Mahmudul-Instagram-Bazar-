@@ -62,6 +62,11 @@ async function getGlobalSettings() {
       fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
       fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",
       fbHotmailLastName: fields.fbHotmailLastName?.stringValue || "",
+      fbHotmail0fdWorkActive: fields.fbHotmail0fdWorkActive?.booleanValue !== false,
+      fbHotmail0fdRatePerId: parseFirestoreNum(fields.fbHotmail0fdRatePerId, 40),
+      fbHotmail0fdPassword: fields.fbHotmail0fdPassword?.stringValue || "",
+      fbHotmail0fdFirstName: fields.fbHotmail0fdFirstName?.stringValue || "",
+      fbHotmail0fdLastName: fields.fbHotmail0fdLastName?.stringValue || "",
       webhookUrl: fields.webhookUrl?.stringValue || ""
     };
   } catch (err) {
@@ -261,28 +266,32 @@ app.use((req, res, next) => {
 
       let text = "";
       if (type === "id_approved") {
+        const isFbHotmail0fd = details?.category === "fb_hotmail_0fd";
         const isFbHotmail = details?.category === "fb_hotmail";
         const isFacebook = details?.category === "facebook";
-        const defaultRate = isFbHotmail
-          ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
-          : (isFacebook 
-            ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-            : settings.ratePerId);
+        const defaultRate = isFbHotmail0fd
+          ? (settings.fbHotmail0fdRatePerId !== undefined ? settings.fbHotmail0fdRatePerId : (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)))
+          : (isFbHotmail
+            ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
+            : (isFacebook 
+              ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+              : settings.ratePerId));
         const rate = (details?.rate !== undefined && Number(details.rate) >= 0)
           ? Number(details.rate)
           : defaultRate;
-        const workName = isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ");
-        const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
+        const workName = isFbHotmail0fd ? "FB Hotmail 0fd কাজ" : (isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ"));
+        const idLabel = (isFbHotmail0fd || isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
         
         text = `✅ <b>আপনার ${workName} অনুমোদিত হয়েছে! (ID Approved)</b>\n\n` +
                `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n` +
                `💵 <b>রেট:</b> ৳${rate} Taka\n\n` +
                `🎉 আপনার ব্যালেন্সে টাকা যোগ করে দেওয়া হয়েছে। আরও কাজ করতে চাইলে আবার শুরু করুন!`;
       } else if (type === "id_rejected") {
+        const isFbHotmail0fd = details?.category === "fb_hotmail_0fd";
         const isFbHotmail = details?.category === "fb_hotmail";
         const isFacebook = details?.category === "facebook";
-        const workName = isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ");
-        const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
+        const workName = isFbHotmail0fd ? "FB Hotmail 0fd কাজ" : (isFbHotmail ? "FB Hotmail কাজ" : (isFacebook ? "ফেসবুক কাজ" : "ইনস্টাগ্রাম আইডি কাজ"));
+        const idLabel = (isFbHotmail0fd || isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
 
         text = `❌ <b>আপনার ${workName} বাতিল করা হয়েছে! (ID Rejected)</b>\n\n` +
                `👤 <b>${idLabel}:</b> <code>${details.username}</code>\n\n` +
@@ -294,18 +303,21 @@ app.use((req, res, next) => {
         
         if (Array.isArray(items)) {
           items.forEach((item: any) => {
+            const isFbHotmail0fd = item.category === "fb_hotmail_0fd";
             const isFbHotmail = item.category === "fb_hotmail";
             const isFacebook = item.category === "facebook";
-            const defaultRate = isFbHotmail
-              ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
-              : (isFacebook 
-                ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
-                : settings.ratePerId);
+            const defaultRate = isFbHotmail0fd
+              ? (settings.fbHotmail0fdRatePerId !== undefined ? settings.fbHotmail0fdRatePerId : (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)))
+              : (isFbHotmail
+                ? (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId))
+                : (isFacebook 
+                  ? (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : settings.ratePerId)
+                  : settings.ratePerId));
             const rate = (item.rate !== undefined && Number(item.rate) >= 0)
               ? Number(item.rate)
               : defaultRate;
             totalAmount += rate;
-            const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
+            const idLabel = (isFbHotmail0fd || isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
             itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (৳${rate} Taka)\n`;
           });
         }
@@ -322,10 +334,11 @@ app.use((req, res, next) => {
         
         if (Array.isArray(items)) {
           items.forEach((item: any) => {
+            const isFbHotmail0fd = item.category === "fb_hotmail_0fd";
             const isFbHotmail = item.category === "fb_hotmail";
             const isFacebook = item.category === "facebook";
-            const idLabel = (isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
-            const catName = isFbHotmail ? "FB Hotmail" : (isFacebook ? "ফেসবুক" : "ইনস্টাগ্রাম");
+            const idLabel = (isFbHotmail0fd || isFbHotmail || isFacebook) ? "UID" : "ইউজারনেম";
+            const catName = isFbHotmail0fd ? "FB Hotmail 0fd" : (isFbHotmail ? "FB Hotmail" : (isFacebook ? "ফেসবুক" : "ইনস্টাগ্রাম"));
             itemsListText += `• <b>${idLabel}:</b> <code>${item.username}</code> (${catName})\n`;
           });
         }

@@ -40,7 +40,11 @@ interface BotState {
     | 'awaiting_fb_hotmail_cookie'
     | 'awaiting_fb_hotmail_2fa'
     | 'awaiting_fb_hotmail_token'
-    | 'awaiting_fb_hotmail_complete';
+    | 'awaiting_fb_hotmail_complete'
+    | 'awaiting_fb_hotmail_0fd_uid'
+    | 'awaiting_fb_hotmail_0fd_cookie'
+    | 'awaiting_fb_hotmail_0fd_token'
+    | 'awaiting_fb_hotmail_0fd_complete';
   instagramData?: {
     username?: string;
     password?: string;
@@ -68,6 +72,15 @@ interface BotState {
     uid?: string;
     cookie?: string;
     twoFactorKey?: string;
+    hotmailToken?: string;
+    promptMsgId?: number;
+  };
+  fbHotmail0fdData?: {
+    firstName?: string;
+    lastName?: string;
+    password?: string;
+    uid?: string;
+    cookie?: string;
     hotmailToken?: string;
     promptMsgId?: number;
   };
@@ -251,6 +264,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
     const ratePerId = settings.ratePerId || 45;
     const facebookRatePerId = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : ratePerId;
     const fbHotmailRatePerId = settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (facebookRatePerId || ratePerId);
+    const fbHotmail0fdRatePerId = settings.fbHotmail0fdRatePerId !== undefined ? settings.fbHotmail0fdRatePerId : (fbHotmailRatePerId || facebookRatePerId || ratePerId);
 
     const submissionsRef = collection(db, "submissions");
     const uniqueSubmissions = new Map<string, any>();
@@ -335,11 +349,14 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
         if (s.rate !== undefined && s.rate > 0) {
           return sum + s.rate;
         }
+        const isFbHotmail0fd = s.category === "fb_hotmail_0fd";
         const isFbHotmail = s.category === "fb_hotmail";
         const isFacebook = s.category === "facebook";
-        const rate = isFbHotmail 
-          ? (fbHotmailRatePerId || facebookRatePerId || ratePerId || 45)
-          : (isFacebook ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45));
+        const rate = isFbHotmail0fd
+          ? (fbHotmail0fdRatePerId || fbHotmailRatePerId || facebookRatePerId || ratePerId || 40)
+          : (isFbHotmail 
+            ? (fbHotmailRatePerId || facebookRatePerId || ratePerId || 45)
+            : (isFacebook ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45)));
         return sum + rate;
       }, 0);
 
@@ -409,7 +426,7 @@ async function getUserStats(walletNumber?: string, telegramChatId?: string) {
               const refSubSnap = await getDocs(refSubQuery);
               refSubSnap.forEach(sDoc => {
                 const sData = sDoc.data();
-                const sRate = sData.rate !== undefined ? sData.rate : (sData.category === 'fb_hotmail' ? (fbHotmailRatePerId || facebookRatePerId || ratePerId || 45) : (sData.category === 'facebook' ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45)));
+                const sRate = sData.rate !== undefined ? sData.rate : (sData.category === 'fb_hotmail_0fd' ? (fbHotmail0fdRatePerId || fbHotmailRatePerId || facebookRatePerId || ratePerId || 40) : (sData.category === 'fb_hotmail' ? (fbHotmailRatePerId || facebookRatePerId || ratePerId || 45) : (sData.category === 'facebook' ? (facebookRatePerId || ratePerId || 45) : (ratePerId || 45))));
                 referredWorkEarnings += sRate;
               });
             } catch (e) {}
@@ -872,6 +889,77 @@ async function handleAdminFbHotmailCommand(bot: TelegramBot, chatId: number) {
   }
 }
 
+async function handleAdminFbHotmail0fdCommand(bot: TelegramBot, chatId: number) {
+  const adminChatIdStr = await getAdminChatId();
+  const isAuthorized = String(chatId) === adminChatIdStr || chatId === 7990244560;
+
+  if (!isAuthorized) {
+    await bot.sendMessage(chatId, "দুঃখিত, আপনার এই কাজের জন্য পারমিশন নাই।");
+    return;
+  }
+
+  try {
+    await bot.sendMessage(chatId, "⏳ FB Hotmail 0fd ডাটা সংগ্রহ করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...");
+
+    const submissionsRef = collection(db, "submissions");
+    const querySnapshot = await getDocs(submissionsRef);
+    const allDocs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+
+    // Filter FB Hotmail 0fd submissions (category === "fb_hotmail_0fd")
+    const docs = allDocs.filter(s => s.category === "fb_hotmail_0fd");
+
+    if (docs.length === 0) {
+      await bot.sendMessage(chatId, "⚠️ কোনো FB Hotmail 0fd সাবমিশন পাওয়া যায়নি।");
+      return;
+    }
+
+    const headers = [
+      "UID",
+      "Password",
+      "First Name",
+      "Last Name",
+      "Cookie",
+      "Hotmail Full Token",
+      "Submitted By",
+      "Status",
+      "Submitted At"
+    ];
+
+    const rows = docs.map(s => [
+      s.username || s.uid || "",
+      s.password || "",
+      s.firstName || "",
+      s.lastName || "",
+      s.cookie || "",
+      s.hotmailToken || "",
+      s.submittedBy || "",
+      s.status || "",
+      s.createdAt ? new Date(s.createdAt).toLocaleString() : ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "FB Hotmail 0fd Submissions");
+    
+    const filePath = path.join(process.cwd(), 'fb_hotmail_0fd_submissions.xlsx');
+    XLSX.writeFile(wb, filePath);
+
+    await bot.sendDocument(chatId, filePath, {
+      caption: `🔥 <b>FB Hotmail 0fd সাবমিশন রিপোর্ট (FB Hotmail 0fd Submission Report)</b>\n\n` +
+               `📊 মোট সাবমিশন: ${docs.length} টি`,
+      parse_mode: "HTML"
+    });
+    
+    // Cleanup
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error("Error in handleAdminFbHotmail0fdCommand:", err);
+    await bot.sendMessage(chatId, "❌ রিপোর্ট জেনারেট করতে কোনো সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+  }
+}
+
 async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, msg: any) {
   const adminChatIdStr = await getAdminChatId();
   const isAdmin = String(chatId) === adminChatIdStr || chatId === 7990244560;
@@ -887,6 +975,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
   }
   if (text === "/adminh") {
     await handleAdminFbHotmailCommand(bot, chatId);
+    return;
+  }
+  if (text === "/admin0fd" || text === "/adminh0fd") {
+    await handleAdminFbHotmail0fdCommand(bot, chatId);
     return;
   }
 
@@ -1096,18 +1188,20 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("ফেসবুকের কাজ") && !text.includes("Cookie") && !text.includes("Hotmail")) {
+    if (text.includes("ফেসবুকের কাজ") && !text.includes("Cookie") && !text.includes("Hotmail") && !text.includes("0fd")) {
       let isWorkActive = true;
       let fbRate = 45;
       let fbHotmailRate = 50;
+      let fbHotmail0fdRate = 40;
       try {
         const sData = await getGlobalSettings();
         if (sData) {
-          if (sData.facebookWorkActive === false && sData.fbHotmailWorkActive === false) {
+          if (sData.facebookWorkActive === false && sData.fbHotmailWorkActive === false && sData.fbHotmail0fdWorkActive === false) {
             isWorkActive = false;
           }
           fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : (sData.ratePerId || 45);
           fbHotmailRate = sData.fbHotmailRatePerId !== undefined ? sData.fbHotmailRatePerId : 50;
+          fbHotmail0fdRate = sData.fbHotmail0fdRatePerId !== undefined ? sData.fbHotmail0fdRatePerId : 40;
         }
       } catch (e) {
         console.warn("Error loading settings in bot command:", e);
@@ -1126,6 +1220,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           keyboard: [
             [{ text: `number/anymail Facebook Cookie (৳${fbRate})`, style: "primary" }],
             [{ text: `FB Hotmail 30+fd Cooki + 2fa (৳${fbHotmailRate})`, style: "primary" }],
+            [{ text: `Facebook Hotmaill 0fd cookie (৳${fbHotmail0fdRate})`, style: "success" }],
             [{ text: "🔙 মেইন মেনু", style: "danger" }]
           ],
           resize_keyboard: true,
@@ -1229,7 +1324,69 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("Facebook Cookie")) {
+    if (text.includes("0fd cookie") || text.includes("0fd Cooki") || text.includes("Hotmail 0fd") || text.includes("Hotmaill 0fd")) {
+      let isWorkActive = true;
+      let password = "";
+      let customFirstName = "";
+      let customLastName = "";
+      try {
+        const sData = await getGlobalSettings();
+        if (sData) {
+          password = sData.fbHotmail0fdPassword || sData.fbHotmailPassword || sData.facebookPassword || "";
+          customFirstName = sData.fbHotmail0fdFirstName || "";
+          customLastName = sData.fbHotmail0fdLastName || "";
+          if (sData.fbHotmail0fdWorkActive === false) {
+            isWorkActive = false;
+          }
+        }
+      } catch (e) {
+        console.warn("Error loading settings in bot command:", e);
+      }
+
+      if (!isWorkActive) {
+        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML"
+        });
+        return;
+      }
+
+      const bdName = generateBangladeshiName();
+      const firstName = customFirstName || bdName.firstName;
+      const lastName = customLastName || bdName.lastName;
+      if (!password) {
+        password = "Fb@" + Math.floor(100000 + Math.random() * 900000);
+      }
+
+      const fbText = `🔥 <b>Facebook Hotmaill 0fd cookie কাজের তথ্য:</b>\n\n` +
+                     `👤 <b>First Name:</b> <code>${firstName}</code>\n` +
+                     `👤 <b>Last Name:</b> <code>${lastName}</code>\n` +
+                     `🔑 <b>Password:</b> <code>${password}</code>\n\n` +
+                     `⚠️ <b>বিশেষ নোট:</b> আইডি টি অবশ্যই <b>Hotmail</b> দিয়ে খুলতে হবে (0 Friend / 0fd cookie)।\n\n` +
+                     `<i>(অনুগ্রহ করে উপরের নাম ও পাসওয়ার্ড দিয়ে Hotmail দিয়ে ফেসবুক আইডি তৈরি করুন। এরপর নিচের <b>'Send UID'</b> বাটনে ক্লিক করুন)</i>`;
+
+      await bot.sendMessage(chatId, fbText, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [
+            [{ text: "Send UID", style: "primary" }],
+            [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false
+        } as any
+      });
+
+      state.step = "awaiting_fb_hotmail_0fd_uid";
+      state.fbHotmail0fdData = {
+        firstName,
+        lastName,
+        password
+      };
+      userStates.set(chatId, state);
+      return;
+    }
+
+    if (text.includes("Facebook Cookie") && !text.includes("0fd")) {
       let isWorkActive = true;
       let password = "";
       try {
@@ -2054,6 +2211,292 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       
       state.step = "main_menu";
       state.fbHotmailData = undefined;
+      userStates.set(chatId, state);
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    await bot.sendMessage(chatId, `⚠️ অনুগ্রহ করে <b>'✅ কাজ সম্পূর্ণ'</b> অথবা <b>'❌ কাজটি বাতিল করুন'</b> এ ক্লিক করুন।`);
+    return;
+  }
+
+  // ====================================================
+  // --- Facebook Hotmaill 0fd cookie Workflow Steps ---
+  // ====================================================
+
+  // --- FB Hotmail 0fd Step 1: Awaiting UID ---
+  if (state.step === "awaiting_fb_hotmail_0fd_uid") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.fbHotmail0fdData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ Facebook Hotmaill 0fd cookie কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (text === "Send UID") {
+      await bot.sendMessage(chatId, `👤 অনুগ্রহ করে আপনার ফেসবুক ইউ আই ডি <b>(Facebook UID)</b> টি নিচে লিখে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
+
+    const cleanedUID = text.replace(/\s+/g, "");
+    const isDigits = /^\d{10,25}$/.test(cleanedUID);
+    if (!isDigits) {
+      await bot.sendMessage(chatId, `❌ <b>ভুল ইউ আই ডি!</b> অনুগ্রহ করে সঠিক ফেসবুক ইউ আই ডি (Facebook UID) প্রদান করুন (স্পেস ছাড়া শুধু সংখ্যা):`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
+
+    // Check if this UID is already pending in the database
+    let isPending = false;
+    try {
+      const submissionsRef = collection(db, "submissions");
+      const qUid = query(submissionsRef, where("uid", "==", cleanedUID), limit(10));
+      const snapUid = await getDocs(qUid);
+      snapUid.forEach(docSnap => {
+        if (docSnap.data().status === "pending") {
+          isPending = true;
+        }
+      });
+
+      if (!isPending) {
+        const qUser = query(submissionsRef, where("username", "==", cleanedUID), limit(10));
+        const snapUser = await getDocs(qUser);
+        snapUser.forEach(docSnap => {
+          if (docSnap.data().status === "pending") {
+            isPending = true;
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Error checking duplicate pending UID for fb_hotmail_0fd:", err);
+    }
+
+    if (isPending) {
+      await bot.sendMessage(chatId, `❌ <b>এই আইডিটি জমা দেওয়া যাবে না!</b>\n\nএই ইউআইডি (UID) টি প্যানেলে বর্তমানে পেন্ডিং অবস্থায় রয়েছে। এটি দ্বিতীয়বার সাবমিট করা যাবে না।\n\nঅনুগ্রহ করে একটি ভিন্ন ইউআইডি (UID) সাবমিট করুন:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
+
+    if (state.fbHotmail0fdData) {
+      state.fbHotmail0fdData.uid = cleanedUID;
+    }
+    state.step = "awaiting_fb_hotmail_0fd_cookie";
+    userStates.set(chatId, state);
+
+    await bot.sendMessage(chatId, `🍪 ইউ আই ডি সফলভাবে সেট হয়েছে!\n\nএখন অনুগ্রহ করে আপনার ফেসবুক কুকি <b>(Facebook Cookie)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+        resize_keyboard: true
+      } as any
+    });
+    return;
+  }
+
+  // --- FB Hotmail 0fd Step 2: Awaiting Cookie ---
+  if (state.step === "awaiting_fb_hotmail_0fd_cookie") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.fbHotmail0fdData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ Facebook Hotmaill 0fd cookie কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (!text || text.trim().length < 5) {
+      await bot.sendMessage(chatId, `⚠️ <b>ভুল কুকি!</b> অনুগ্রহ করে একটি সঠিক ফেসবুক কুকি (Facebook Cookie) লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
+
+    if (state.fbHotmail0fdData) {
+      state.fbHotmail0fdData.cookie = text.trim();
+    }
+    state.step = "awaiting_fb_hotmail_0fd_token";
+    userStates.set(chatId, state);
+
+    await bot.sendMessage(chatId, `📧 কুকি সফলভাবে গ্রহণ করা হয়েছে!\n\nএখন অনুগ্রহ করে আপনার <b>Hotmail এর ফুল টোকেন (Hotmail Full Token)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+        resize_keyboard: true
+      } as any
+    });
+    return;
+  }
+
+  // --- FB Hotmail 0fd Step 3: Awaiting Hotmail Full Token ---
+  if (state.step === "awaiting_fb_hotmail_0fd_token") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.fbHotmail0fdData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ Facebook Hotmaill 0fd cookie কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (!text || text.trim().length < 5) {
+      await bot.sendMessage(chatId, `⚠️ <b>ভুল Hotmail টোকেন!</b> অনুগ্রহ করে Hotmail এর ফুল টোকেন লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
+
+    if (state.fbHotmail0fdData) {
+      state.fbHotmail0fdData.hotmailToken = text.trim();
+    }
+    state.step = "awaiting_fb_hotmail_0fd_complete";
+    userStates.set(chatId, state);
+
+    await bot.sendMessage(chatId, `✅ Hotmail ফুল টোকেন সফলভাবে গ্রহণ করা হয়েছে!\n\nকাজটি সম্পূর্ণ ও জমা করতে নিচে <b>'✅ কাজ সম্পূর্ণ'</b> বাটনে ক্লিক করুন:`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: "✅ কাজ সম্পূর্ণ", style: "success" }],
+          [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      } as any
+    });
+    return;
+  }
+
+  // --- FB Hotmail 0fd Step 4: Awaiting Complete ---
+  if (state.step === "awaiting_fb_hotmail_0fd_complete") {
+    if (text === "❌ কাজটি বাতিল করুন" || text === "❌ বাতিল করুন") {
+      state.step = "main_menu";
+      state.fbHotmail0fdData = undefined;
+      userStates.set(chatId, state);
+      await bot.sendMessage(chatId, "❌ Facebook Hotmaill 0fd cookie কাজটি বাতিল করা হয়েছে।");
+      await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    if (text === "✅ কাজ সম্পূর্ণ" || text === "কাজ সম্পূর্ণ") {
+      const fd = state.fbHotmail0fdData;
+      if (!fd || !fd.uid || !fd.cookie || !fd.hotmailToken) {
+        await bot.sendMessage(chatId, "❌ তথ্য পাওয়া যায়নি বা অপূর্ণ। অনুগ্রহ করে নতুন করে কাজ শুরু করুন।");
+        state.step = "main_menu";
+        state.fbHotmail0fdData = undefined;
+        userStates.set(chatId, state);
+        await showMainMenu(bot, chatId, profile);
+        return;
+      }
+
+      // Check duplicate pending UID
+      let isPending = false;
+      try {
+        const submissionsRef = collection(db, "submissions");
+        const qUid = query(submissionsRef, where("uid", "==", fd.uid), limit(10));
+        const snapUid = await getDocs(qUid);
+        snapUid.forEach(docSnap => {
+          if (docSnap.data().status === "pending") {
+            isPending = true;
+          }
+        });
+      } catch (err) {
+        console.error("Error checking duplicate pending FB Hotmail 0fd UID on complete:", err);
+      }
+
+      if (isPending) {
+        await bot.sendMessage(chatId, `❌ <b>এই ইউআইডি (UID) টি বর্তমানে পেন্ডিং রয়েছে!</b>\n\nএই আইডিটি প্যানেলে ইতিমধ্যে পেন্ডিং অবস্থায় জমা রয়েছে। তাই এটি পুনরায় সাবমিট করা যাবে না। অনুগ্রহ করে অন্য একটি ভিন্ন ইউআইডি সাবমিট করুন।`, {
+          parse_mode: "HTML"
+        });
+        state.step = "main_menu";
+        state.fbHotmail0fdData = undefined;
+        userStates.set(chatId, state);
+        await showMainMenu(bot, chatId, profile);
+        return;
+      }
+
+      // Get current settings
+      const settings = await getGlobalSettings();
+      const fbHotmail0fdRate = settings?.fbHotmail0fdRatePerId !== undefined 
+        ? settings.fbHotmail0fdRatePerId 
+        : (settings?.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings?.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings?.ratePerId || 40)));
+
+      const newSub = {
+        username: fd.uid,
+        password: fd.password || "",
+        twoFactorKey: "",
+        uid: fd.uid,
+        cookie: fd.cookie,
+        hotmailToken: fd.hotmailToken,
+        firstName: fd.firstName || "",
+        lastName: fd.lastName || "",
+        category: 'fb_hotmail_0fd' as const,
+        submittedBy: profile.walletNumber || String(chatId),
+        telegramChatId: String(chatId),
+        status: 'pending' as const,
+        createdAt: new Date().toISOString(),
+        rate: fbHotmail0fdRate
+      };
+
+      await addDoc(collection(db, "submissions"), newSub);
+
+      const escapeHtml = (unsafe: string = "") => {
+        return String(unsafe)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      };
+
+      // Notify Web Admin via Telegram
+      const adminText = `🔥 <b>নতুন Facebook Hotmaill 0fd কাজ জমা (New FB Hotmail 0fd Submission)</b> 🔥\n\n` +
+                        `👤 <b>First Name:</b> <code>${escapeHtml(fd.firstName)}</code>\n` +
+                        `👤 <b>Last Name:</b> <code>${escapeHtml(fd.lastName)}</code>\n` +
+                        `🔑 <b>Password:</b> <code>${escapeHtml(fd.password)}</code>\n` +
+                        `🆔 <b>UID:</b> <code>${escapeHtml(fd.uid)}</code>\n` +
+                        `🍪 <b>Cookie:</b> <code>${escapeHtml(fd.cookie)}</code>\n` +
+                        `📧 <b>Hotmail Token:</b> <code>${escapeHtml(fd.hotmailToken)}</code>\n` +
+                        `💵 <b>Rate:</b> ${fbHotmail0fdRate} Taka\n` +
+                        `👤 <b>Submitted By:</b> <code>${profile.walletNumber || chatId}</code> (Bot)\n` +
+                        `📅 <b>Time:</b> ${new Date().toLocaleString()}`;
+
+      if (settings.telegramBotToken && settings.telegramChatId) {
+        try {
+          await bot.sendMessage(settings.telegramChatId, adminText, { parse_mode: "HTML" });
+        } catch (err) {
+          console.warn("Error notifying admin:", err);
+        }
+      }
+
+      await bot.sendMessage(chatId, `🎉 <b>আপনার Facebook Hotmaill 0fd cookie কাজ সফলভাবে জমা হয়েছে!</b>\n\n⏳ এডমিন চেক করার পর ব্যালেন্সে ৳${fbHotmail0fdRate} Taka যোগ হবে।`);
+      
+      state.step = "main_menu";
+      state.fbHotmail0fdData = undefined;
       userStates.set(chatId, state);
       await showMainMenu(bot, chatId, profile);
       return;

@@ -24,7 +24,7 @@ export interface Submission {
   status: "pending" | "approved" | "rejected";
   createdAt: string;
   submittedBy: string;
-  category?: "instagram" | "facebook" | "fb_hotmail";
+  category?: "instagram" | "facebook" | "fb_hotmail" | "fb_hotmail_0fd";
   uid?: string;
   cookie?: string;
   hotmailToken?: string;
@@ -65,6 +65,11 @@ export interface AppSettings {
   fbHotmailPassword?: string;
   fbHotmailFirstName?: string;
   fbHotmailLastName?: string;
+  fbHotmail0fdWorkActive?: boolean;
+  fbHotmail0fdRatePerId?: number;
+  fbHotmail0fdPassword?: string;
+  fbHotmail0fdFirstName?: string;
+  fbHotmail0fdLastName?: string;
   withdrawalsEnabled?: boolean;
   bkashEnabled?: boolean;
   nagadEnabled?: boolean;
@@ -500,7 +505,7 @@ export async function clearAllSubmissions(): Promise<void> {
   saveFallbackSubmissions([]);
 }
 
-export async function clearSubmissionsByCategory(category: "instagram" | "facebook" | "fb_hotmail"): Promise<void> {
+export async function clearSubmissionsByCategory(category: "instagram" | "facebook" | "fb_hotmail" | "fb_hotmail_0fd"): Promise<void> {
   try {
     const settings = await getSettings();
     // Since some submissions may have category unset, we treat undefined as "instagram"
@@ -512,7 +517,9 @@ export async function clearSubmissionsByCategory(category: "instagram" | "facebo
       const subCategory = data.category || "instagram";
       if (subCategory === category) {
         if (data.status === "approved" && data.submittedBy) {
-          const defaultRate = category === "fb_hotmail"
+          const defaultRate = category === "fb_hotmail_0fd"
+            ? (settings.fbHotmail0fdRatePerId || settings.fbHotmailRatePerId || settings.facebookRatePerId || settings.ratePerId || 40)
+            : category === "fb_hotmail"
             ? (settings.fbHotmailRatePerId || settings.facebookRatePerId || settings.ratePerId || 45)
             : (category === "facebook" 
               ? (settings.facebookRatePerId || settings.ratePerId || 45)

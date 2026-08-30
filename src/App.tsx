@@ -24,7 +24,8 @@ import {
   Facebook,
   ShieldCheck,
   Gift,
-  Flame
+  Flame,
+  Mail
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -55,19 +56,21 @@ import {
 
 import AdminFacebook from './components/AdminFacebook';
 import AdminFbHotmail from './components/AdminFbHotmail';
+import AdminFbHotmail0fd from './components/AdminFbHotmail0fd';
 import AdminInstagram from './components/AdminInstagram';
 import AdminBot from './components/AdminBot';
 import AdminReferral from './components/AdminReferral';
 
 export default function App() {
   // Navigation & Role State
-  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_fb_hotmail' | 'admin_instagram' | 'admin_withdrawals' | 'admin_referral' | 'admin_bot'>('admin_facebook');
+  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_fb_hotmail' | 'admin_fb_hotmail_0fd' | 'admin_instagram' | 'admin_withdrawals' | 'admin_referral' | 'admin_bot'>('admin_facebook');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Facebook, FB Hotmail and Instagram Admin sub-tab states
   const [fbSubTab, setFbSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
   const [fbHotmailSubTab, setFbHotmailSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
+  const [fbHotmail0fdSubTab, setFbHotmail0fdSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
   const [igSubTab, setIgSubTab] = useState<'submissions' | 'summary' | 'settings' | 'clear'>('submissions');
 
   // Admin Login Security States
@@ -185,9 +188,10 @@ export default function App() {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
   
-  const adminCategory = useMemo<'instagram' | 'facebook' | 'fb_hotmail'>(() => {
+  const adminCategory = useMemo<'instagram' | 'facebook' | 'fb_hotmail' | 'fb_hotmail_0fd'>(() => {
     if (activeTab === 'admin_facebook') return 'facebook';
     if (activeTab === 'admin_fb_hotmail') return 'fb_hotmail';
+    if (activeTab === 'admin_fb_hotmail_0fd') return 'fb_hotmail_0fd';
     return 'instagram';
   }, [activeTab]);
 
@@ -682,8 +686,8 @@ export default function App() {
 
   // Admin: Clear All Submissions
   const handleClearAllSubmissions = async () => {
-    if (clearConfirmationText.toUpperCase() !== 'CONFIRM') {
-      setDbMessage({ type: 'error', text: "অনুগ্রহ করে নিশ্চিত করতে 'CONFIRM' শব্দটি সঠিক বানানে লিখুন।" });
+    if (clearConfirmationText.toUpperCase() !== 'CONFIRM' && clearConfirmationText !== 'DELETE ALL SUBMISSIONS') {
+      setDbMessage({ type: 'error', text: "অনুগ্রহ করে নিশ্চিত করতে 'CONFIRM' শব্দটি লিখুন।" });
       return;
     }
     setIsClearingSubmissions(true);
@@ -693,7 +697,8 @@ export default function App() {
       setSubmissions(prev => prev.filter(s => (s.category || 'instagram') !== adminCategory));
       setSelectedSubIds([]);
       setClearConfirmationText('');
-      setDbMessage({ type: 'success', text: `✅ ডাটাবেজের সকল ${adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম'} সাবমিশন সফলভাবে মুছে ফেলা হয়েছে!` });
+      const catName = adminCategory === 'fb_hotmail_0fd' ? 'Facebook Hotmail 0fd' : adminCategory === 'fb_hotmail' ? 'FB Hotmail' : adminCategory === 'facebook' ? 'ফেসবুক' : 'ইনস্টাগ্রাম';
+      setDbMessage({ type: 'success', text: `✅ ডাটাবেজের সকল ${catName} সাবমিশন সফলভাবে মুছে ফেলা হয়েছে!` });
     } catch (err) {
       console.error(err);
       setDbMessage({ type: 'error', text: '❌ সাবমিশন মুছতে সমস্যা হয়েছে।' });
@@ -1281,9 +1286,12 @@ export default function App() {
       if (s.rate !== undefined && s.rate > 0) {
         return sum + s.rate;
       }
+      const isFbHotmail0fd = s.category === 'fb_hotmail_0fd';
       const isFbHotmail = s.category === 'fb_hotmail';
       const isFacebook = s.category === 'facebook';
-      const rate = isFbHotmail
+      const rate = isFbHotmail0fd
+        ? (settings.fbHotmail0fdRatePerId !== undefined && settings.fbHotmail0fdRatePerId > 0 ? settings.fbHotmail0fdRatePerId : (settings.fbHotmailRatePerId !== undefined && settings.fbHotmailRatePerId > 0 ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined && settings.facebookRatePerId > 0 ? settings.facebookRatePerId : (settings.ratePerId || 40))))
+        : isFbHotmail
         ? (settings.fbHotmailRatePerId !== undefined && settings.fbHotmailRatePerId > 0 ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined && settings.facebookRatePerId > 0 ? settings.facebookRatePerId : (settings.ratePerId || 45)))
         : isFacebook 
         ? (settings.facebookRatePerId !== undefined && settings.facebookRatePerId > 0 ? settings.facebookRatePerId : (settings.ratePerId || 45))
@@ -1359,12 +1367,14 @@ export default function App() {
       (referredUserIds.has(s.submittedBy) || ((s as any).telegramChatId && referredUserIds.has((s as any).telegramChatId)))
     );
 
+    const fbHotmail0fdRate = settings.fbHotmail0fdRatePerId !== undefined ? settings.fbHotmail0fdRatePerId : (settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 40)));
     const fbHotmailRate = settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : (settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45));
     const facebookRate = settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings.ratePerId || 45);
     const mainRate = settings.ratePerId || 45;
 
     const referredWorkEarnings = approvedReferredSubmissions.reduce((sum, s) => {
       if (s.rate !== undefined && s.rate > 0) return sum + s.rate;
+      if (s.category === 'fb_hotmail_0fd') return sum + fbHotmail0fdRate;
       if (s.category === 'fb_hotmail') return sum + fbHotmailRate;
       return sum + (s.category === 'facebook' ? facebookRate : mainRate);
     }, 0);
@@ -1618,6 +1628,10 @@ export default function App() {
               <Flame size={16} className="text-orange-500" />
               <span>FB Hotmail Control (নতুন কাজ)</span>
             </button>
+            <button onClick={() => { setActiveTab('admin_fb_hotmail_0fd'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_fb_hotmail_0fd' ? 'bg-emerald-950/80 border border-emerald-800/40 text-emerald-400 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Mail size={16} className="text-emerald-400" />
+              <span>FB Hotmail 0fd (নতুন কাজ)</span>
+            </button>
             <button onClick={() => { setActiveTab('admin_instagram'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_instagram' ? 'bg-pink-950/80 border border-pink-800/40 text-pink-400 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <Instagram size={16} className="text-pink-500" />
               <span>Instagram Control (ইনস্টা)</span>
@@ -1673,6 +1687,7 @@ export default function App() {
             <h2 className="text-lg font-bold text-white tracking-tight capitalize">
               {activeTab === 'admin_facebook' ? 'Facebook Submissions & Control' :
                activeTab === 'admin_fb_hotmail' ? 'FB Hotmail 30+fd Cookie + 2fa Control' :
+               activeTab === 'admin_fb_hotmail_0fd' ? 'Facebook Hotmaill 0fd cookie Control' :
                activeTab === 'admin_instagram' ? 'Instagram Submissions & Control' :
                activeTab === 'admin_withdrawals' ? 'Payouts & Withdrawals Manager' :
                activeTab === 'admin_referral' ? 'Referral Program Control & Bonus Manager' :
@@ -1859,6 +1874,49 @@ export default function App() {
               withdrawals={withdrawals}
               fbHotmailSubTab={fbHotmailSubTab}
               setFbHotmailSubTab={setFbHotmailSubTab}
+              calculateUserBalance={calculateUserBalance}
+              handleAdjustUserBalance={handleAdjustUserBalance}
+              handleBulkRateUpdate={handleBulkRateUpdate}
+              allSubmissions={submissions}
+              allProfiles={allProfiles}
+            />
+          )}
+
+          {/* ADMIN: FB HOTMAIL 0FD CONTROL TAB */}
+          {activeTab === 'admin_fb_hotmail_0fd' && (
+            <AdminFbHotmail0fd
+              settings={settings}
+              setAppSettings={setAppSettings}
+              categoryFilteredSubmissions={categoryFilteredSubmissions}
+              categoryGroupedSubmissions={categoryGroupedSubmissions}
+              selectedSubIds={selectedSubIds}
+              setSelectedSubIds={setSelectedSubIds}
+              pastedUsernamesText={pastedUsernamesText}
+              setPastedUsernamesText={setPastedUsernamesText}
+              bulkPasteResult={bulkPasteResult}
+              handleBulkPasteAction={handleBulkPasteAction}
+              handleBulkSubAction={handleBulkSubAction}
+              handleApproveRejectSub={handleApproveRejectSub}
+              handleDeleteSub={handleDeleteSub}
+              handleExportCSV={handleExportCSV}
+              workerSearchQuery={workerSearchQuery}
+              setWorkerSearchQuery={setWorkerSearchQuery}
+              expandedWorker={expandedWorker}
+              setExpandedWorker={setExpandedWorker}
+              clearConfirmationText={clearConfirmationText}
+              setClearConfirmationText={setClearConfirmationText}
+              dbMessage={dbMessage}
+              handleClearAllSubmissions={handleClearAllSubmissions}
+              handleClearAllWithdrawals={handleClearAllWithdrawals}
+              handleClearAllProfiles={handleClearAllProfiles}
+              isClearingSubmissions={isClearingSubmissions}
+              isClearingWithdrawals={isClearingWithdrawals}
+              isClearingProfiles={isClearingProfiles}
+              handleSaveSettings={handleSaveSettings}
+              settingsStatus={settingsStatus}
+              withdrawals={withdrawals}
+              fbHotmail0fdSubTab={fbHotmail0fdSubTab}
+              setFbHotmail0fdSubTab={setFbHotmail0fdSubTab}
               calculateUserBalance={calculateUserBalance}
               handleAdjustUserBalance={handleAdjustUserBalance}
               handleBulkRateUpdate={handleBulkRateUpdate}

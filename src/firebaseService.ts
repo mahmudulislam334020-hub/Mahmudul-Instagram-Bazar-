@@ -96,6 +96,8 @@ export interface AppSettings {
   previousPasswordCategory?: string;
   roundsHistory?: LeaderboardRound[];
   leaderboardEnabledCategories?: string[]; // e.g. ['facebook', 'fb_hotmail']
+  leaderboardBonusNotice?: string; // e.g. 'বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে'
+  leaderboardMinRequiredIds?: number; // default 60
 
   withdrawalsEnabled?: boolean;
   bkashEnabled?: boolean;
@@ -165,6 +167,8 @@ const getFallbackSettings = (): AppSettings => {
     fbHotmailPassword: "",
     fbHotmailFirstName: "",
     fbHotmailLastName: "",
+    fbHotmail0fdWorkActive: false,
+    fbHotmail0fdRatePerId: 40,
     withdrawalsEnabled: true,
     bkashEnabled: true,
     nagadEnabled: true,

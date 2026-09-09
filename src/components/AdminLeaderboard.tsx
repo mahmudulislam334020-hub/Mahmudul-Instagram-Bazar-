@@ -52,6 +52,41 @@ export default function AdminLeaderboard({
   const [searchFilter, setSearchFilter] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'manual' | 'settings'>('overview');
 
+  // Bonus condition notice state (e.g. কমপক্ষে ৬০টি আইডি জমা করতে হবে)
+  const [bonusNoticeText, setBonusNoticeText] = useState(
+    settings.leaderboardBonusNotice || 'বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে'
+  );
+  const [minRequiredIds, setMinRequiredIds] = useState<number | string>(
+    settings.leaderboardMinRequiredIds !== undefined ? settings.leaderboardMinRequiredIds : 60
+  );
+  const [isSavingNotice, setIsSavingNotice] = useState(false);
+
+  const handleSaveBonusNotice = async () => {
+    setIsSavingNotice(true);
+    try {
+      const updatedSettings: AppSettings = {
+        ...settings,
+        leaderboardBonusNotice: bonusNoticeText.trim(),
+        leaderboardMinRequiredIds: Number(minRequiredIds) || 60
+      };
+      await saveSettings(updatedSettings);
+      setSettings(updatedSettings);
+      fetch("/api/admin/invalidate-cache", { method: "POST" }).catch(() => {});
+      setBroadcastStatus({
+        success: true,
+        message: '✅ বোনাস শর্ত ও বিজ্ঞপ্তি সফলভাবে আপডেট করা হয়েছে!'
+      });
+      setTimeout(() => setBroadcastStatus(null), 4000);
+    } catch (err: any) {
+      setBroadcastStatus({
+        success: false,
+        message: `❌ এরর: ${err?.message || err}`
+      });
+    } finally {
+      setIsSavingNotice(false);
+    }
+  };
+
   // Available dedicated categories that admin can enable/disable for leaderboard
   const allCategoryOptions = [
     { id: 'facebook', label: 'FB Cookie (ফেসবুক)', field: 'facebookPassword', workActive: settings.facebookWorkActive !== false },
@@ -471,6 +506,62 @@ export default function AdminLeaderboard({
               <b>টিপস:</b> আপনি যদি হটমেইল জিরো ফ্রেন্ড (0fd) আনচেক করে রাখেন, তবে টেলিগ্রাম বটে কিংবা রানিং পাসওয়ার্ড তালিকায় এটি কর্মীদের দেখানো হবে না এবং ওই পাসওয়ার্ড পরিবর্তন হলেও স্বয়ংক্রিয়ভাবে লিডারবোর্ডে যুক্ত হবে না।
             </p>
           </div>
+
+          {/* Leaderboard Bonus Requirement & Notice Configuration */}
+          <div className="border-t border-slate-800 pt-5 mt-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-amber-400" />
+              <div>
+                <h4 className="text-sm font-bold text-white">🎁 লিডারবোর্ড বোনাস শর্ত ও বিজ্ঞপ্তি (Bonus Requirement Notice)</h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  টেলিগ্রাম বটে যখন কর্মীরা "🏆 সেরা কর্মী (লিডারবোর্ড)" বাটনে চাপ দেবে তখন এই শর্ত বা মেসেজটি হাইলাইট আকারে দেখাবে।
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <label className="text-xs font-bold text-slate-300 mb-1.5 block">
+                  বোনাস নোটিশ / মেসেজ:
+                </label>
+                <input
+                  type="text"
+                  value={bonusNoticeText}
+                  onChange={(e) => setBonusNoticeText(e.target.value)}
+                  placeholder="যেমন: বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 mb-1.5 block">
+                  ন্যূনতম কাজের সংখ্যা (আইডি):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={minRequiredIds}
+                    onChange={(e) => setMinRequiredIds(e.target.value)}
+                    placeholder="60"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-8 py-2.5 text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">টি</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                disabled={isSavingNotice}
+                onClick={handleSaveBonusNotice}
+                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
+              >
+                <Check size={14} />
+                <span>{isSavingNotice ? "সংরক্ষণ হচ্ছে..." : "💾 বোনাস শর্ত সংরক্ষণ করুন"}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -633,6 +724,32 @@ export default function AdminLeaderboard({
       {/* ---------------------------------------------------- */}
       {activeSubTab === 'overview' && (
         <>
+          {/* Active Bonus Notice Bar */}
+          <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/20 text-amber-300 rounded-xl border border-amber-500/30">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">টেলিগ্রাম বট লিডারবোর্ড নোটিশ:</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">সক্রিয় শর্ত</span>
+                </div>
+                <p className="text-xs md:text-sm font-bold text-white mt-0.5">
+                  👉 "{bonusNoticeText || 'বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে'}"
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveSubTab('settings')}
+              className="text-xs font-bold text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 px-3.5 py-1.5 rounded-xl border border-amber-500/40 transition-all flex items-center gap-1.5 self-start sm:self-center"
+            >
+              <Sliders size={13} />
+              <span>শর্ত পরিবর্তন</span>
+            </button>
+          </div>
+
           {/* Main Active Round Display */}
           {currentRound ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6 shadow-lg space-y-5">

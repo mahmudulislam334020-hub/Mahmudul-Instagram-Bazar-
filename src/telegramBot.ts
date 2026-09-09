@@ -50,7 +50,14 @@ interface BotState {
     | 'awaiting_fb_hotmail_0fd_uid'
     | 'awaiting_fb_hotmail_0fd_cookie'
     | 'awaiting_fb_hotmail_0fd_token'
-    | 'awaiting_fb_hotmail_0fd_complete';
+    | 'awaiting_fb_hotmail_0fd_complete'
+    | 'awaiting_admin_broadcast_message'
+    | 'awaiting_admin_broadcast_confirm';
+  broadcastData?: {
+    type: 'text' | 'photo';
+    text: string;
+    photoFileId?: string;
+  };
   instagramData?: {
     username?: string;
     password?: string;
@@ -531,10 +538,20 @@ export function formatLeaderboardMessage(round: LeaderboardRound | undefined, se
   }
   const runningPwdBlock = lines.length > 0 ? lines.join("\n") : "• বর্তমানে সব কাজ বিরতিতে আছে";
 
+  const bonusNotice = settings?.leaderboardBonusNotice?.trim() || 
+    (settings?.leaderboardMinRequiredIds 
+      ? `বোনাস পেতে হলে কমপক্ষে ${settings.leaderboardMinRequiredIds}টি আইডি জমা করতে হবে`
+      : "বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে");
+
+  const bonusNoticeBlock = `🎁 <b>বোনাস নোটিশ:</b> <i>${bonusNotice}</i>`;
+
   if (!round || !round.winners || round.winners.length === 0) {
     return `🏆 <b>সেরা কর্মী লিডারবোর্ড (Leaderboard)</b>\n\n` +
            `🔑 <b>বর্তমান রানিং পাসওয়ার্ড:</b>\n` +
            `${runningPwdBlock}\n\n` +
+           `━━━━━━━━━━━━━━━━━━━━━\n` +
+           `${bonusNoticeBlock}\n` +
+           `━━━━━━━━━━━━━━━━━━━━━\n\n` +
            `⏳ <i>এই পাসওয়ার্ডের রাউন্ড শেষ হলে এবং নতুন পাসওয়ার্ড শুরু হলে স্বয়ংক্রিয়ভাবে আগের পাসওয়ার্ডের সেরা ৩ জন কর্মীকে এখানে দেখতে পাবেন।</i>\n\n` +
            `🔥 দ্রুত কাজ জমা দিয়ে সেরা ৩ জনের মধ্যে নিজের জায়গা করে নিন!`;
   }
@@ -570,9 +587,45 @@ export function formatLeaderboardMessage(round: LeaderboardRound | undefined, se
          `${winnersList}\n` +
          `${userRankText}\n` +
          `━━━━━━━━━━━━━━━━━━━━━\n` +
+         `${bonusNoticeBlock}\n` +
+         `━━━━━━━━━━━━━━━━━━━━━\n` +
          `✨ <b>বর্তমান রানিং পাসওয়ার্ড:</b>\n` +
          `${runningPwdBlock}\n\n` +
-         `🔥 <i>বর্তমান রাউন্ডেও বেশি বেশি কাজ জমা দিয়ে পরবর্তী সেরা ৩ জনের তালিকায় আপনার নাম নিশ্চিত করুন!</i>`;
+          `🔥 <i>বর্তমান রাউন্ডেও বেশি বেশি কাজ জমা দিয়ে পরবর্তী সেরা ৩ জনের তালিকায় আপনার নাম নিশ্চিত করুন!</i>`;
+}
+
+export function isBroadcastAdmin(chatId?: number | string | null): boolean {
+  if (!chatId) return false;
+  return String(chatId).trim() === "7990244560";
+}
+
+export function getMainMenuReplyMarkup(chatId?: number | string) {
+  const keyboard: any[][] = [
+    [{ text: "💼 কাজ", style: "success" }],
+    [
+      { text: "💰 ব্যালেন্স চেক", style: "primary" },
+      { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }
+    ],
+    [
+      { text: "👥 রেফারেল লিংক", style: "primary" },
+      { text: "📞 সাপোর্ট", style: "primary" }
+    ],
+    [
+      { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
+    ]
+  ];
+
+  if (isBroadcastAdmin(chatId)) {
+    keyboard.push([
+      { text: "📢 ব্রডকাস্ট", style: "danger" }
+    ]);
+  }
+
+  return {
+    keyboard,
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
 }
 
 export async function handleLeaderboardCommand(bot: TelegramBot, chatId: number, profile?: any) {
@@ -608,23 +661,7 @@ export async function handleLeaderboardCommand(bot: TelegramBot, chatId: number,
 
     await bot.sendMessage(chatId, text, {
       parse_mode: "HTML",
-      reply_markup: {
-        keyboard: [
-          [{ text: "💼 কাজ", style: "success" }],
-          [
-            { text: "💰 ব্যালেন্স চেক", style: "primary" },
-            { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }
-          ],
-          [
-            { text: "👥 রেফারেল লিংক", style: "primary" },
-            { text: "📞 সাপোর্ট", style: "primary" }
-          ],
-          [
-            { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
-          ]
-        ],
-        resize_keyboard: true
-      } as any
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
     });
   } catch (err) {
     console.error("Error in handleLeaderboardCommand:", err);
@@ -639,45 +676,54 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
-    reply_markup: {
-      keyboard: [
-        [
-          { text: "💼 কাজ", style: "success" }
-        ],
-        [
-          { text: "💰 ব্যালেন্স চেক", style: "primary" },
-          { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }
-        ],
-        [
-          { text: "👥 রেফারেল লিংক", style: "primary" },
-          { text: "📞 সাপোর্ট", style: "primary" }
-        ],
-        [
-          { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
-        ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    } as any
+    reply_markup: getMainMenuReplyMarkup(chatId) as any
   });
 }
 
 async function showWorkMenu(bot: TelegramBot, chatId: number) {
+  let instaActive = true;
+  let fbActive = true;
+  try {
+    const sData = await getGlobalSettings();
+    if (sData) {
+      instaActive = sData.instagramWorkActive !== false;
+      const anyFbActive = (sData.facebookWorkActive !== false) || 
+                          (sData.fbHotmailWorkActive !== false) || 
+                          (sData.fbHotmail0fdWorkActive !== false);
+      fbActive = anyFbActive;
+    }
+  } catch (e) {
+    console.warn("Error loading settings in showWorkMenu:", e);
+  }
+
+  const workButtons: any[][] = [];
+  const topRow: any[] = [];
+  if (instaActive) {
+    topRow.push({ text: "📸 ইনস্টাগ্রামের কাজ", style: "success" });
+  }
+  if (fbActive) {
+    topRow.push({ text: "👥 ফেসবুকের কাজ", style: "primary" });
+  }
+  if (topRow.length > 0) {
+    workButtons.push(topRow);
+  }
+  workButtons.push([{ text: "🔙 মেইন মেনু", style: "danger" }]);
+
+  if (topRow.length === 0) {
+    await bot.sendMessage(chatId, `⚠️ <b>বর্তমানে সব কাজ সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+      parse_mode: "HTML",
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+    return;
+  }
+
   const text = `💼 <b>আপনার পছন্দের কাজটি নির্বাচন করুন:</b>\n\n` +
                `👇 নিচে থেকে যেকোনো একটি কাজ শুরু করুন:`;
   
   await bot.sendMessage(chatId, text, {
     parse_mode: "HTML",
     reply_markup: {
-      keyboard: [
-        [
-          { text: "📸 ইনস্টাগ্রামের কাজ", style: "success" },
-          { text: "👥 ফেসবুকের কাজ", style: "primary" }
-        ],
-        [
-          { text: "🔙 মেইন মেনু", style: "danger" }
-        ]
-      ],
+      keyboard: workButtons,
       resize_keyboard: true,
       one_time_keyboard: false
     } as any
@@ -841,6 +887,197 @@ async function getAdminChatId(): Promise<string> {
     console.error("Error fetching settings for admin authorization:", err);
   }
   return "7990244560"; // fallback
+}
+
+async function handleAdminStartBroadcast(bot: TelegramBot, chatId: number) {
+  if (!isBroadcastAdmin(chatId)) {
+    await bot.sendMessage(chatId, "❌ দুঃখিত, ব্রডকাস্ট ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+    return;
+  }
+
+  userStates.set(chatId, {
+    step: "awaiting_admin_broadcast_message"
+  });
+
+  await bot.sendMessage(
+    chatId,
+    `📢 <b>অ্যাডমিন ব্রডকাস্ট প্যানেল (Telegram Broadcast)</b>\n\n` +
+    `টেলিগ্রাম থেকে সরাসরি সকল বটের ব্যবহারকারী অথবা অফিশিয়াল চ্যানেলে যেকোনো মেসেজ বা নোটিশ পাঠাতে পারেন।\n\n` +
+    `✍️ <b>আপনি যে মেসেজটি পাঠাতে চান, তা এখনই লিখে পাঠান:</b>\n` +
+    `• সাধারণ টেক্সট মেসেজ পাঠাতে পারেন (HTML ফরম্যাট বা লিংক সহ)।\n` +
+    `• ছবি বা ব্যানারের সাথে ক্যাপশন লিখেও পাঠাতে পারেন।\n\n` +
+    `❌ <i>বাতিল করতে চাইলে নিচের "❌ বাতিল" বাটনে চাপ দিন বা "বাতিল" লিখে পাঠান।</i>`,
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: "❌ বাতিল", style: "danger" }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+      } as any
+    }
+  );
+}
+
+async function executeAdminBroadcast(bot: TelegramBot, chatId: number, target: 'users' | 'channel' | 'both') {
+  if (!isBroadcastAdmin(chatId)) {
+    await bot.sendMessage(chatId, "❌ দুঃখিত, আপনার এই কাজের পারমিশন নেই।");
+    return;
+  }
+
+  const state = userStates.get(chatId);
+  const bcastData = state?.broadcastData;
+
+  if (!bcastData || (!bcastData.text && !bcastData.photoFileId)) {
+    await bot.sendMessage(chatId, "⚠️ ব্রডকাস্টের মেসেজ পাওয়া যায়নি। অনুগ্রহ করে আবার শুরু করুন।", {
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+    userStates.delete(chatId);
+    return;
+  }
+
+  // Clear state so double-submission is prevented
+  userStates.delete(chatId);
+
+  await bot.sendMessage(chatId, "⏳ <b>ব্রডকাস্ট প্রক্রিয়া শুরু হয়েছে...</b>\n\nইউজারদের তালিকা প্রস্তুত করে মেসেজ পাঠানো হচ্ছে। কিছুক্ষণ অপেক্ষা করুন...", {
+    parse_mode: "HTML"
+  });
+
+  let successUsers = 0;
+  let failUsers = 0;
+  let totalUsers = 0;
+  let channelSuccess: boolean | null = null;
+  let channelError: string = "";
+
+  // 1. Send to Users
+  if (target === 'users' || target === 'both') {
+    try {
+      const profilesRef = collection(db, "profiles");
+      const qSnap = await getDocs(profilesRef);
+      const uniqueChatIds = Array.from(new Set(
+        qSnap.docs
+          .map(d => d.data()?.telegramChatId)
+          .filter(Boolean)
+          .map(id => String(id).trim())
+          .filter(id => id.length > 0 && id !== "undefined" && id !== "null")
+      ));
+
+      totalUsers = uniqueChatIds.length;
+
+      for (let i = 0; i < uniqueChatIds.length; i++) {
+        const uChatId = uniqueChatIds[i];
+        try {
+          if (bcastData.type === 'photo' && bcastData.photoFileId) {
+            await bot.sendPhoto(uChatId, bcastData.photoFileId, {
+              caption: bcastData.text,
+              parse_mode: "HTML"
+            });
+          } else {
+            await bot.sendMessage(uChatId, bcastData.text, {
+              parse_mode: "HTML"
+            });
+          }
+          successUsers++;
+        } catch (sendErr: any) {
+          const errMsg = sendErr?.message || sendErr?.description || "";
+          if (errMsg.includes("can't parse entities")) {
+            try {
+              if (bcastData.type === 'photo' && bcastData.photoFileId) {
+                await bot.sendPhoto(uChatId, bcastData.photoFileId, { caption: bcastData.text });
+              } else {
+                await bot.sendMessage(uChatId, bcastData.text);
+              }
+              successUsers++;
+            } catch {
+              failUsers++;
+            }
+          } else {
+            failUsers++;
+          }
+        }
+
+        // Slight rate-limiting delay: 35ms between messages, 1s every 25 messages
+        await new Promise(r => setTimeout(r, 35));
+        if ((i + 1) % 25 === 0) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    } catch (err) {
+      console.error("Error broadcasting to users:", err);
+    }
+  }
+
+  // 2. Send to Channel
+  if (target === 'channel' || target === 'both') {
+    try {
+      const settings = await getGlobalSettings();
+      const channelId = settings?.telegramChatId || settings?.forceJoinGroup;
+      if (!channelId) {
+        channelSuccess = false;
+        channelError = "কোনো অফিশিয়াল চ্যানেল আইডি সেট করা নেই";
+      } else {
+        try {
+          if (bcastData.type === 'photo' && bcastData.photoFileId) {
+            await bot.sendPhoto(channelId, bcastData.photoFileId, {
+              caption: bcastData.text,
+              parse_mode: "HTML"
+            });
+          } else {
+            await bot.sendMessage(channelId, bcastData.text, {
+              parse_mode: "HTML"
+            });
+          }
+          channelSuccess = true;
+        } catch (chErr: any) {
+          const errMsg = chErr?.message || chErr?.description || "";
+          if (errMsg.includes("can't parse entities")) {
+            try {
+              if (bcastData.type === 'photo' && bcastData.photoFileId) {
+                await bot.sendPhoto(channelId, bcastData.photoFileId, { caption: bcastData.text });
+              } else {
+                await bot.sendMessage(channelId, bcastData.text);
+              }
+              channelSuccess = true;
+            } catch (retryErr: any) {
+              channelSuccess = false;
+              channelError = retryErr?.message || "চ্যানেলে মেসেজ পাঠাতে সমস্যা";
+            }
+          } else {
+            channelSuccess = false;
+            channelError = errMsg || "চ্যানেলে মেসেজ পাঠাতে সমস্যা";
+          }
+        }
+      }
+    } catch (err: any) {
+      channelSuccess = false;
+      channelError = err?.message || "চ্যানেল সেটিংস পেতে ব্যর্থ";
+    }
+  }
+
+  // 3. Final summary report to admin
+  let reportText = `🎉 <b>ব্রডকাস্ট সম্পন্ন হয়েছে!</b>\n\n` +
+                   `📋 <b>ডেলিভারি রিপোর্ট:</b>\n` +
+                   `━━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (target === 'users' || target === 'both') {
+    reportText += `👥 মোট টার্গেট ইউজার: <b>${totalUsers}</b> জন\n` +
+                  `✅ সফলভাবে পাঠানো হয়েছে: <b>${successUsers}</b> জন\n` +
+                  `❌ ব্যর্থ / নিষ্ক্রিয় / ব্লক: <b>${failUsers}</b> জন\n`;
+  }
+
+  if (target === 'channel' || target === 'both') {
+    reportText += `📢 অফিশিয়াল চ্যানেল: ${channelSuccess ? '✅ সফল' : `❌ ব্যর্থ (${channelError})`}\n`;
+  }
+
+  reportText += `━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⏰ সময়: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Dhaka' })}\n\n` +
+                `ধন্যবাদ! আপনার ব্রডকাস্ট সফলভাবে সমাপ্ত হয়েছে।`;
+
+  await bot.sendMessage(chatId, reportText, {
+    parse_mode: "HTML",
+    reply_markup: getMainMenuReplyMarkup(chatId) as any
+  });
 }
 
 async function handleAdminInstagramCommand(bot: TelegramBot, chatId: number) {
@@ -1110,6 +1347,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     await handleAdminFbHotmail0fdCommand(bot, chatId);
     return;
   }
+  if (text === "/broadcast" || text === "📢 ব্রডকাস্ট" || text === "📢 ব্রডকাস্ট মেসেজ" || text === "ব্রডকাস্ট") {
+    if (!isBroadcastAdmin(chatId)) {
+      await bot.sendMessage(chatId, "❌ দুঃখিত, ব্রডকাস্ট ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+      return;
+    }
+    await handleAdminStartBroadcast(bot, chatId);
+    return;
+  }
 
   // Check Force Join (Bypassed for Admin users)
   if (!isAdmin) {
@@ -1310,24 +1555,150 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     // (I will need to be careful not to delete too much)
   }
 
+  // --- Admin Broadcast Steps ---
+  if (state.step === "awaiting_admin_broadcast_message") {
+    if (!isBroadcastAdmin(chatId)) {
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ দুঃখিত, আপনার এই কাজের পারমিশন নেই।");
+      return;
+    }
+
+    if (text === "❌ বাতিল" || text === "বাতিল" || lowerText === "/cancel" || lowerText === "cancel") {
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ <b>ব্রডকাস্ট বাতিল করা হয়েছে।</b>", {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      return;
+    }
+
+    const bcastText = (msg.caption || text || "").trim();
+    const photoFileId = (msg.photo && Array.isArray(msg.photo) && msg.photo.length > 0)
+      ? msg.photo[msg.photo.length - 1].file_id
+      : undefined;
+
+    if (!bcastText && !photoFileId) {
+      await bot.sendMessage(chatId, "⚠️ অনুগ্রহ করে আপনি যে মেসেজটি ব্রডকাস্ট করতে চান তা লিখে পাঠান অথবা ছবি আপলোড করুন।\n\nবাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।", {
+        parse_mode: "HTML"
+      });
+      return;
+    }
+
+    let totalUsers = 0;
+    try {
+      const profilesRef = collection(db, "profiles");
+      const qSnap = await getDocs(profilesRef);
+      const uniqueChatIds = new Set(
+        qSnap.docs
+          .map(d => d.data()?.telegramChatId)
+          .filter(Boolean)
+          .map(id => String(id).trim())
+          .filter(id => id.length > 0 && id !== "undefined" && id !== "null")
+      );
+      totalUsers = uniqueChatIds.size;
+    } catch (e) {
+      console.warn("Could not get profile count:", e);
+    }
+
+    userStates.set(chatId, {
+      step: "awaiting_admin_broadcast_confirm",
+      broadcastData: {
+        type: photoFileId ? 'photo' : 'text',
+        text: bcastText,
+        photoFileId
+      }
+    });
+
+    const previewMsg = 
+      `📢 <b>ব্রডকাস্ট মেসেজ প্রিভিউ (Message Preview):</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `${bcastText || "<i>[শুধুমাত্র ছবি/ফটো]</i>"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `👥 <b>টার্গেট ইউজার সংখ্যা:</b> প্রায় <b>${totalUsers}</b> জন\n\n` +
+      `🎯 <b>আপনি মেসেজটি কোথায় পাঠাতে চান? নিচের অপশন নির্বাচন করুন:</b>`;
+
+    const inlineKeyboard = [
+      [{ text: `👥 সকল ইউজারদের পাঠান (${totalUsers} জন)`, callback_data: "bcast_target_users" }],
+      [{ text: `📢 অফিশিয়াল চ্যানেলে পাঠান`, callback_data: "bcast_target_channel" }],
+      [{ text: `🌐 ইউজার + চ্যানেল উভয়টিতে`, callback_data: "bcast_target_both" }],
+      [{ text: `❌ বাতিল করুন`, callback_data: "bcast_cancel" }]
+    ];
+
+    if (photoFileId) {
+      await bot.sendPhoto(chatId, photoFileId, {
+        caption: previewMsg,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: inlineKeyboard
+        } as any
+      });
+    } else {
+      await bot.sendMessage(chatId, previewMsg, {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: inlineKeyboard
+        } as any
+      });
+    }
+    return;
+  }
+
+  if (state.step === "awaiting_admin_broadcast_confirm") {
+    if (!isBroadcastAdmin(chatId)) {
+      userStates.delete(chatId);
+      return;
+    }
+
+    if (text === "❌ বাতিল" || text === "বাতিল" || lowerText === "/cancel" || lowerText === "cancel") {
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ <b>ব্রডকাস্ট বাতিল করা হয়েছে।</b>", {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      return;
+    }
+
+    if (text.includes("সকল ইউজার")) {
+      await executeAdminBroadcast(bot, chatId, 'users');
+      return;
+    } else if (text.includes("চ্যানেল") && !text.includes("উভয়") && !text.includes("উভয়")) {
+      await executeAdminBroadcast(bot, chatId, 'channel');
+      return;
+    } else if (text.includes("উভয়") || text.includes("উভয়")) {
+      await executeAdminBroadcast(bot, chatId, 'both');
+      return;
+    }
+  }
+
   // --- 5. Step: Main Menu Actions ---
   if (state.step === "main_menu") {
+    if (text === "📢 ব্রডকাস্ট" || text === "📢 ব্রডকাস্ট মেসেজ" || text === "ব্রডকাস্ট") {
+      if (!isBroadcastAdmin(chatId)) {
+        await bot.sendMessage(chatId, "❌ দুঃখিত, ব্রডকাস্ট ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+        return;
+      }
+      await handleAdminStartBroadcast(bot, chatId);
+      return;
+    }
+
     if (text === "💼 কাজ" || text === "কাজ") {
       await showWorkMenu(bot, chatId);
       return;
     }
 
     if (text.includes("ফেসবুকের কাজ") && !text.includes("Cookie") && !text.includes("Hotmail") && !text.includes("0fd")) {
-      let isWorkActive = true;
+      let fbActive = true;
+      let fbHotmailActive = true;
+      let fbHotmail0fdActive = true;
       let fbRate = 45;
       let fbHotmailRate = 50;
       let fbHotmail0fdRate = 40;
       try {
         const sData = await getGlobalSettings();
         if (sData) {
-          if (sData.facebookWorkActive === false && sData.fbHotmailWorkActive === false && sData.fbHotmail0fdWorkActive === false) {
-            isWorkActive = false;
-          }
+          fbActive = sData.facebookWorkActive !== false;
+          fbHotmailActive = sData.fbHotmailWorkActive !== false;
+          fbHotmail0fdActive = sData.fbHotmail0fdWorkActive !== false;
           fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : (sData.ratePerId || 45);
           fbHotmailRate = sData.fbHotmailRatePerId !== undefined ? sData.fbHotmailRatePerId : 50;
           fbHotmail0fdRate = sData.fbHotmail0fdRatePerId !== undefined ? sData.fbHotmail0fdRatePerId : 40;
@@ -1336,9 +1707,22 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         console.warn("Error loading settings in bot command:", e);
       }
 
-      if (!isWorkActive) {
-        await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
-          parse_mode: "HTML"
+      const fbButtons: any[][] = [];
+      if (fbActive) {
+        fbButtons.push([{ text: `number/anymail Facebook Cookie (৳${fbRate})`, style: "primary" }]);
+      }
+      if (fbHotmailActive) {
+        fbButtons.push([{ text: `FB Hotmail 30+fd Cooki + 2fa (৳${fbHotmailRate})`, style: "primary" }]);
+      }
+      if (fbHotmail0fdActive) {
+        fbButtons.push([{ text: `Facebook Hotmaill 0fd cookie (৳${fbHotmail0fdRate})`, style: "success" }]);
+      }
+      fbButtons.push([{ text: "🔙 মেইন মেনু", style: "danger" }]);
+
+      if (fbButtons.length === 1) { // Only back button
+        await bot.sendMessage(chatId, `⚠️ <b>ফেসবুকের সব কাজ সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
+          parse_mode: "HTML",
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         return;
       }
@@ -1346,12 +1730,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, `👥 <b>ফেসবুকের কাজ শুরু করতে নিচে ক্লিক করুন:</b>`, {
         parse_mode: "HTML",
         reply_markup: {
-          keyboard: [
-            [{ text: `number/anymail Facebook Cookie (৳${fbRate})`, style: "primary" }],
-            [{ text: `FB Hotmail 30+fd Cooki + 2fa (৳${fbHotmailRate})`, style: "primary" }],
-            [{ text: `Facebook Hotmaill 0fd cookie (৳${fbHotmail0fdRate})`, style: "success" }],
-            [{ text: "🔙 মেইন মেনু", style: "danger" }]
-          ],
+          keyboard: fbButtons,
           resize_keyboard: true,
           one_time_keyboard: false
         } as any
@@ -1596,14 +1975,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       if (!isWorkActive) {
         await bot.sendMessage(chatId, `⚠️ <b>কাজটি সাময়িকভাবে বন্ধ আছে, আপডেট এর জন্য চ্যানেলে চোখ রাখুন,,,</b>`, {
           parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ", style: "success" }],
-              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-            ],
-            resize_keyboard: true
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         return;
       }
@@ -1640,17 +2012,13 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       await bot.sendMessage(chatId, 
         `📬 <b>আমাদের সাপোর্ট টিম (Support Team):</b>\n\n` +
         `যেকোনো সমস্যা, প্রশ্ন বা পেমেন্ট সংক্রান্ত সহায়তার জন্য আমাদের অফিশিয়াল সাপোর্ট আইডিতে যোগাযোগ করুন:\n\n` +
-        `📢 সাপোর্ট আইডি: <b>t.me/Earnpointcustomercare</b>\n\n` +
-        `সাপোর্ট আইডিতে সরাসরি মেসেজ দিতে নিচের বাটনে ক্লিক করুন। ধন্যবাদ!`,
+        `📢 সাপোর্ট আইডি: <b>@Earnpointcustomercare</b>\n` +
+        `🔗 চ্যাট লিংক: https://t.me/Earnpointcustomercare\n\n` +
+        `💬 <a href="https://t.me/Earnpointcustomercare">👉 <b>সরাসরি সাপোর্ট টিমে কথা বলতে এখানে ক্লিক করুন</b></a>\n\n` +
+        `<i>(মেসেজ দিতে উপরের নীল লিংকে টাচ করুন)</i>`,
         {
           parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: "💬 সাপোর্ট এ যোগাযোগ করুন", url: "https://t.me/Earnpointcustomercare", style: "primary" }
-              ]
-            ]
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         }
       );
       return;
@@ -1686,14 +2054,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       await bot.sendMessage(chatId, balanceText, {
         parse_mode: "HTML",
-        reply_markup: {
-          keyboard: [
-            [{ text: "💼 কাজ", style: "success" }],
-            [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-            [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-          ],
-          resize_keyboard: true
-        } as any
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
       });
       return;
     }
@@ -1719,14 +2080,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
       await bot.sendMessage(chatId, refMsg, {
         parse_mode: "HTML",
-        reply_markup: {
-          keyboard: [
-            [{ text: "💼 কাজ", style: "success" }],
-            [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-            [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-          ],
-          resize_keyboard: true
-        } as any
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
       });
       return;
     }
@@ -1737,14 +2091,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       if (settings.withdrawalsEnabled === false) {
         await bot.sendMessage(chatId, `⚠️ <b>দুঃখিত!</b>\n\nএডমিন কর্তৃক বর্তমানে টাকা উত্তোলন সাময়িকভাবে বন্ধ রাখা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন। ধন্যবাদ!`, {
           parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ", style: "success" }],
-              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-            ],
-            resize_keyboard: true
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         return;
       }
@@ -1754,14 +2101,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       if ((stats.pendingWithdrawn + stats.pendingReferralWithdrawn) > 0) {
         await bot.sendMessage(chatId, `⚠️ <b>আপনার একটি উইথড্রয়াল অনুরোধ বর্তমানে পেন্ডিং রয়েছে!</b>\n\nসেটি সফল বা বাতিল হওয়ার আগে নতুন কোনো উইথড্র দিতে পারবেন না। পূর্বের উইথড্রটি সফল বা বাতিল হলে পুনরায় নতুন অনুরোধ করতে পারবেন। ধন্যবাদ!`, {
           parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ", style: "success" }],
-              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-            ],
-            resize_keyboard: true
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         return;
       }
@@ -2899,14 +3239,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       if (stats.balance < minW) {
         await bot.sendMessage(chatId, `❌ <b>দুঃখিত! মূল ব্যালেন্স উত্তোলনের সীমা পূরণ হয়নি।</b>\n\nমূল ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳<b>${minW}</b> Taka থাকতে হবে।\nবর্তমানে আপনার মূল ব্যালেন্স: ৳<b>${stats.balance}</b> Taka।`, {
           parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ", style: "success" }],
-              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-            ],
-            resize_keyboard: true
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         state.step = "main_menu";
         state.withdrawData = undefined;
@@ -2918,14 +3251,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       if (stats.referralBalance < minRefW) {
         await bot.sendMessage(chatId, `❌ <b>দুঃখিত! রেফার ব্যালেন্স উত্তোলনের সীমা পূরণ হয়নি।</b>\n\nরেফার ব্যালেন্স থেকে টাকা তুলতে সর্বনিম্ন ৳<b>${minRefW}</b> Taka থাকতে হবে।\nবর্তমানে আপনার রেফার ব্যালেন্স: ৳<b>${stats.referralBalance}</b> Taka।\n\n💡 আপনার বন্ধুরা বটে জয়েন করলে পাবেন আকর্ষণীয় রেফার বোনাস!`, {
           parse_mode: "HTML",
-          reply_markup: {
-            keyboard: [
-              [{ text: "💼 কাজ", style: "success" }],
-              [{ text: "💰 ব্যালেন্স চেক", style: "primary" }, { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }],
-              [{ text: "👥 রেফারেল লিংক", style: "primary" }, { text: "📞 সাপোর্ট", style: "primary" }]
-            ],
-            resize_keyboard: true
-          } as any
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
         });
         state.step = "main_menu";
         state.withdrawData = undefined;
@@ -3276,6 +3602,32 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
 
   if (!chatId || !data) return;
 
+  // Handle Broadcast Callbacks first
+  if (data === "bcast_cancel") {
+    if (!isBroadcastAdmin(chatId)) {
+      try { await bot.answerCallbackQuery(callbackQuery.id, { text: "পারমিশন নেই", show_alert: true }); } catch {}
+      return;
+    }
+    userStates.delete(chatId);
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: "ব্রডকাস্ট বাতিল করা হয়েছে" }); } catch {}
+    await bot.sendMessage(chatId, "❌ <b>ব্রডকাস্ট বাতিল করা হয়েছে।</b>", {
+      parse_mode: "HTML",
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+    return;
+  }
+
+  if (data === "bcast_target_users" || data === "bcast_target_channel" || data === "bcast_target_both") {
+    if (!isBroadcastAdmin(chatId)) {
+      try { await bot.answerCallbackQuery(callbackQuery.id, { text: "পারমিশন নেই", show_alert: true }); } catch {}
+      return;
+    }
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const target = data === "bcast_target_users" ? "users" : data === "bcast_target_channel" ? "channel" : "both";
+    await executeAdminBroadcast(bot, chatId, target);
+    return;
+  }
+
   // Handle Force Join Verification
   if (data === "verify_join") {
     // Clear cache entry to ensure a fresh live verification check
@@ -3326,25 +3678,29 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
     return;
   }
 
-  // Ensure user is member for any other callback actions
-  const membership = await isUserMemberOfGroup(bot, chatId);
-  if (!membership.isMember) {
-    if (!membership.success) {
-      await bot.sendMessage(chatId, 
-        `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
-        `টেলিগ্রাম বটের চ্যানেল মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
-        `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
-        `১. আপনার টেলিগ্রাম বটকে অবশ্যই মেইন চ্যানেল (<b>@accounttradecenterXincome</b>) এবং মেথড চ্যানেল (<b>@eranpointmethod</b>) দুটিতেই <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n` +
-        `২. বটকে অ্যাডমিন না বানালে টেলিগ্রাম সিকিউরিটি নিয়মানুযায়ী বট কোনো মেম্বারের তথ্য অ্যাক্সেস করতে পারে না।\n\n` +
-        `<i>(আপনি যদি এই বটের মালিক হন, তবে এখনই বটটিকে চ্যানেল দুটিতে অ্যাডমিন হিসেবে যুক্ত করুন)</i>`,
-        { parse_mode: "HTML" }
-      );
+  // Ensure user is member for any other callback actions (bypassed for admin)
+  const adminChatIdStr = await getAdminChatId();
+  const isAdmin = String(chatId) === adminChatIdStr || chatId === 7990244560 || isBroadcastAdmin(chatId);
+  if (!isAdmin) {
+    const membership = await isUserMemberOfGroup(bot, chatId);
+    if (!membership.isMember) {
+      if (!membership.success) {
+        await bot.sendMessage(chatId, 
+          `⚠️ <b>সিস্টেম নোটিশ (System Configuration Notice):</b>\n\n` +
+          `টেলিগ্রাম বটের চ্যানেল মেম্বারশিপ চেক করতে সমস্যা হচ্ছে।\n\n` +
+          `🔧 <b>সমাধান করতে অনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:</b>\n` +
+          `১. আপনার টেলিগ্রাম বটকে অবশ্যই মেইন চ্যানেল (<b>@accounttradecenterXincome</b>) এবং মেথড চ্যানেল (<b>@eranpointmethod</b>) দুটিতেই <b>অ্যাডমিন (Admin)</b> হিসেবে যুক্ত করতে হবে।\n` +
+          `২. বটকে অ্যাডমিন না বানালে টেলিগ্রাম সিকিউরিটি নিয়মানুযায়ী বট কোনো মেম্বারের তথ্য অ্যাক্সেস করতে পারে না।\n\n` +
+          `<i>(আপনি যদি এই বটের মালিক হন, তবে এখনই বটটিকে চ্যানেল দুটিতে অ্যাডমিন হিসেবে যুক্ত করুন)</i>`,
+          { parse_mode: "HTML" }
+        );
+      }
+      await showForceJoinPrompt(bot, chatId, !membership.success);
+      try {
+        await bot.answerCallbackQuery(callbackQuery.id);
+      } catch (err) {}
+      return;
     }
-    await showForceJoinPrompt(bot, chatId, !membership.success);
-    try {
-      await bot.answerCallbackQuery(callbackQuery.id);
-    } catch (err) {}
-    return;
   }
 
   // Let's redirect standard callback commands to match text inputs
@@ -3387,7 +3743,10 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
   }
 
   try {
-    await bot.answerCallbackQuery(callbackQuery.id);
+    const alertText = (data === "cmd_leaderboard" || data === "leaderboard")
+      ? "🎁 বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে"
+      : undefined;
+    await bot.answerCallbackQuery(callbackQuery.id, alertText ? { text: alertText, show_alert: false } : undefined);
   } catch (err) {
     // Ignore harmless callback errors
   }

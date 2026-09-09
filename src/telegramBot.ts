@@ -23,6 +23,12 @@ import {
   where,
   limit
 } from "firebase/firestore";
+import { 
+  calculateLeaderboardForPassword, 
+  detectPreviousPasswords, 
+  maskWorkerId, 
+  LeaderboardRound 
+} from "./firebaseService";
 
 interface BotState {
   step: 
@@ -506,6 +512,126 @@ async function cleanUpInstagramMessages(bot: TelegramBot, chatId: number, state:
 
 
 // --- View Renderers with Bottom Keyboard Markup ---
+export function formatLeaderboardMessage(round: LeaderboardRound | undefined, settings: any, profile?: any, chatId?: number): string {
+  // Check which categories are enabled in settings / work active
+  const enabledCats = settings?.leaderboardEnabledCategories || ['facebook', 'fb_hotmail'];
+  
+  const lines: string[] = [];
+  if (enabledCats.includes('facebook') && settings?.facebookWorkActive !== false) {
+    lines.push(`• FB Cookie: <code>${settings?.facebookPassword || "নির্ধারিত নয়"}</code>`);
+  }
+  if (enabledCats.includes('fb_hotmail') && settings?.fbHotmailWorkActive !== false) {
+    lines.push(`• FB Hotmail 30+fd: <code>${settings?.fbHotmailPassword || "নির্ধারিত নয়"}</code>`);
+  }
+  if (enabledCats.includes('fb_hotmail_0fd') && settings?.fbHotmail0fdWorkActive !== false) {
+    lines.push(`• FB Hotmail 0fd: <code>${settings?.fbHotmail0fdPassword || "নির্ধারিত নয়"}</code>`);
+  }
+  if (enabledCats.includes('instagram') && settings?.instagramWorkActive !== false) {
+    lines.push(`• Instagram: <code>${settings?.dailyPassword || "নির্ধারিত নয়"}</code>`);
+  }
+  const runningPwdBlock = lines.length > 0 ? lines.join("\n") : "• বর্তমানে সব কাজ বিরতিতে আছে";
+
+  if (!round || !round.winners || round.winners.length === 0) {
+    return `🏆 <b>সেরা কর্মী লিডারবোর্ড (Leaderboard)</b>\n\n` +
+           `🔑 <b>বর্তমান রানিং পাসওয়ার্ড:</b>\n` +
+           `${runningPwdBlock}\n\n` +
+           `⏳ <i>এই পাসওয়ার্ডের রাউন্ড শেষ হলে এবং নতুন পাসওয়ার্ড শুরু হলে স্বয়ংক্রিয়ভাবে আগের পাসওয়ার্ডের সেরা ৩ জন কর্মীকে এখানে দেখতে পাবেন।</i>\n\n` +
+           `🔥 দ্রুত কাজ জমা দিয়ে সেরা ৩ জনের মধ্যে নিজের জায়গা করে নিন!`;
+  }
+
+  const winnerIcons = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"];
+  const winnersList = round.winners.slice(0, 3).map((w, idx) => {
+    const icon = winnerIcons[idx] || "⭐";
+    const masked = maskWorkerId(w.maskedWorker || w.workerId || "");
+    return `${icon} <b>${idx + 1}ম স্থান:</b> <code>${masked}</code> — <b>${w.count}টি কাজ</b>`;
+  }).join("\n");
+
+  let userRankText = "";
+  if (!round.isManual && (profile?.walletNumber || profile?.telegramChatId || chatId)) {
+    const myWallet = (profile?.walletNumber || "").trim();
+    const myChat = String(profile?.telegramChatId || chatId || "");
+    const myWinner = round.winners.find(w => w.workerId === myWallet || w.workerId === myChat);
+    if (myWinner) {
+      userRankText = `\n👤 <b>আপনার অবস্থান:</b> #${myWinner.rank} (${myWinner.count}টি কাজ)\n`;
+    }
+  }
+
+  const categoryName = round.category === "facebook" ? "ফেসবুক (Facebook)" 
+    : round.category === "fb_hotmail" ? "FB Hotmail 30+fd" 
+    : round.category === "fb_hotmail_0fd" ? "FB Hotmail 0fd" 
+    : round.category === "instagram" ? "ইনস্টাগ্রাম" 
+    : (round.isManual ? "স্পেশাল শিফট / রাউন্ড" : "কাজের রাউন্ড");
+
+  const pwdDisplay = round.password ? `🔑 <b>রাউন্ডের পাসওয়ার্ড:</b> <code>${round.password}</code>\n` : "";
+
+  return `🏆 <b>পূর্ববর্তী রাউন্ডের সেরা ৩ জন কর্মী (Leaderboard)</b> 🏆\n\n` +
+         `${pwdDisplay}` +
+         `🏷️ <b>ক্যাটাগরি:</b> ${categoryName}\n\n` +
+         `${winnersList}\n` +
+         `${userRankText}\n` +
+         `━━━━━━━━━━━━━━━━━━━━━\n` +
+         `✨ <b>বর্তমান রানিং পাসওয়ার্ড:</b>\n` +
+         `${runningPwdBlock}\n\n` +
+         `🔥 <i>বর্তমান রাউন্ডেও বেশি বেশি কাজ জমা দিয়ে পরবর্তী সেরা ৩ জনের তালিকায় আপনার নাম নিশ্চিত করুন!</i>`;
+}
+
+export async function handleLeaderboardCommand(bot: TelegramBot, chatId: number, profile?: any) {
+  try {
+    const settings = await getGlobalSettings();
+    let round: LeaderboardRound | undefined = settings?.lastLeaderboardRound;
+
+    const activePasswords = [
+      settings?.facebookPassword,
+      settings?.fbHotmailPassword,
+      settings?.fbHotmail0fdPassword,
+      settings?.dailyPassword
+    ].filter(Boolean) as string[];
+
+    if (!round || !round.winners || round.winners.length === 0) {
+      try {
+        const submissionsRef = collection(db, "submissions");
+        const snap = await getDocs(query(submissionsRef, limit(500)));
+        const subs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const pastPasswords = detectPreviousPasswords(subs, activePasswords);
+
+        if (pastPasswords.length > 0) {
+          round = calculateLeaderboardForPassword(subs, [], pastPasswords[0]);
+        } else if (activePasswords.length > 0) {
+          round = calculateLeaderboardForPassword(subs, [], activePasswords[0]);
+        }
+      } catch (calcErr) {
+        console.warn("Could not calculate dynamic leaderboard:", calcErr);
+      }
+    }
+
+    const text = formatLeaderboardMessage(round, settings, profile, chatId);
+
+    await bot.sendMessage(chatId, text, {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: "💼 কাজ", style: "success" }],
+          [
+            { text: "💰 ব্যালেন্স চেক", style: "primary" },
+            { text: "💸 ব্যালেন্স উত্তোলন", style: "success" }
+          ],
+          [
+            { text: "👥 রেফারেল লিংক", style: "primary" },
+            { text: "📞 সাপোর্ট", style: "primary" }
+          ],
+          [
+            { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
+          ]
+        ],
+        resize_keyboard: true
+      } as any
+    });
+  } catch (err) {
+    console.error("Error in handleLeaderboardCommand:", err);
+    await bot.sendMessage(chatId, "❌ দুঃখিত, লিডারবোর্ড লোড করতে সাময়িক সমস্যা হয়েছে। পরে আবার চেষ্টা করুন।");
+  }
+}
+
 async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
   const text = `🏠 <b>মেইন মেনু (Main Menu)</b>\n\n` +
                `👤 <b>ইউজার আইডি:</b> <code>${chatId}</code>\n` +
@@ -525,6 +651,9 @@ async function showMainMenu(bot: TelegramBot, chatId: number, profile: any) {
         [
           { text: "👥 রেফারেল লিংক", style: "primary" },
           { text: "📞 সাপোর্ট", style: "primary" }
+        ],
+        [
+          { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
         ]
       ],
       resize_keyboard: true,
@@ -1524,6 +1653,17 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
           } as any
         }
       );
+      return;
+    }
+
+    if (
+      text === "🏆 সেরা কর্মী (লিডারবোর্ড)" || 
+      text === "🏆 লিডারবোর্ড" || 
+      text === "/leaderboard" || 
+      (text && text.toLowerCase().trim() === "/leaderboard") ||
+      (text && (text.includes("লিডারবোর্ড") || text.includes("সেরা কর্মী")))
+    ) {
+      await handleLeaderboardCommand(bot, chatId, profile);
       return;
     }
 
@@ -3242,6 +3382,8 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
     await handleBotMessage(bot, chatId, "❌ কাজটি বাতিল করুন", callbackQuery.message);
   } else if (data === "back_to_main_menu") {
     await handleBotMessage(bot, chatId, "🔙 মেইন মেনু", callbackQuery.message);
+  } else if (data === "cmd_leaderboard" || data === "leaderboard") {
+    await handleBotMessage(bot, chatId, "🏆 সেরা কর্মী (লিডারবোর্ড)", callbackQuery.message);
   }
 
   try {
@@ -3255,6 +3397,29 @@ let currentBot: TelegramBot | null = null;
 let currentBotToken: string | null = null;
 let currentWebhookUrl: string | null = null;
 let loggedDevWarning = false;
+
+export async function broadcastLeaderboardToChannel(round: LeaderboardRound): Promise<{ success: boolean; message: string }> {
+  if (!currentBot) {
+    await syncTelegramBot(true);
+  }
+  if (!currentBot) {
+    return { success: false, message: "টেলিগ্রাম বট সক্রিয় নেই বা বট টোকেন সংযুক্ত নেই।" };
+  }
+  const settings = await getGlobalSettings();
+  const targetChatId = settings?.telegramChatId || settings?.forceJoinGroup;
+  if (!targetChatId) {
+    return { success: false, message: "কোনো টেলিগ্রাম চ্যানেল বা গ্রুপ আইডি সেট করা নেই।" };
+  }
+
+  const text = formatLeaderboardMessage(round, settings);
+  try {
+    await currentBot.sendMessage(targetChatId, `📢 <b>অফিশিয়াল ফলাফল ও লিডারবোর্ড ঘোষণা:</b>\n\n` + text, { parse_mode: "HTML" });
+    return { success: true, message: "টেলিগ্রাম চ্যানেলে সফলভাবে ফলাফল প্রকাশ করা হয়েছে!" };
+  } catch (err: any) {
+    console.error("Error broadcasting leaderboard:", err);
+    return { success: false, message: `টেলিগ্রাম চ্যানেলে পাঠাতে ত্রুটি: ${err?.message || err}` };
+  }
+}
 
 export async function handleWebhookUpdate(update: any) {
   console.log("Received Webhook Update:", JSON.stringify(update));

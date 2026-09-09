@@ -1,7 +1,13 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { initTelegramBot, handleWebhookUpdate, invalidateUserStatsCache, invalidateSettingsCache } from "./src/telegramBot";
+import { 
+  initTelegramBot, 
+  handleWebhookUpdate, 
+  invalidateUserStatsCache, 
+  invalidateSettingsCache,
+  broadcastLeaderboardToChannel 
+} from "./src/telegramBot";
 
 // Load configuration dynamically
 let projectId = "mahmudul-instagram-bazar";
@@ -398,6 +404,21 @@ app.use((req, res, next) => {
     invalidateUserStatsCache();
     invalidateSettingsCache();
     res.json({ success: true, message: "Cache invalidated successfully." });
+  });
+
+  // Admin route to broadcast leaderboard to Telegram channel/group
+  app.post(["/api/admin/broadcast-leaderboard", "/broadcast-leaderboard"], async (req, res) => {
+    try {
+      const { round } = req.body;
+      if (!round) {
+        return res.status(400).json({ success: false, error: "রাউন্ডের তথ্য পাওয়া যায়নি।" });
+      }
+      const result = await broadcastLeaderboardToChannel(round);
+      return res.status(200).json(result);
+    } catch (err: any) {
+      console.error("Error broadcasting leaderboard in server.ts:", err);
+      return res.status(500).json({ success: false, error: err?.message || "প্রচার করতে সমস্যা হয়েছে।" });
+    }
   });
 
   // Proxy route for Telegram notifications

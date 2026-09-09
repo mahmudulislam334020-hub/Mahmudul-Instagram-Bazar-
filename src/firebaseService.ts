@@ -46,6 +46,27 @@ export interface Withdrawal {
   balanceType?: "main" | "referral";
 }
 
+export interface LeaderboardWinner {
+  rank: number;
+  workerId: string;
+  maskedWorker: string;
+  count: number;
+  category?: string;
+  fullName?: string;
+}
+
+export interface LeaderboardRound {
+  id?: string;
+  password: string;
+  category?: string;
+  completedAt: string;
+  winners: LeaderboardWinner[];
+  totalSubmissions?: number;
+  totalApproved?: number;
+  isManual?: boolean;
+  note?: string;
+}
+
 export interface AppSettings {
   ratePerId: number;
   telegramBotToken: string;
@@ -70,6 +91,12 @@ export interface AppSettings {
   fbHotmail0fdPassword?: string;
   fbHotmail0fdFirstName?: string;
   fbHotmail0fdLastName?: string;
+  lastLeaderboardRound?: LeaderboardRound;
+  previousPassword?: string;
+  previousPasswordCategory?: string;
+  roundsHistory?: LeaderboardRound[];
+  leaderboardEnabledCategories?: string[]; // e.g. ['facebook', 'fb_hotmail']
+
   withdrawalsEnabled?: boolean;
   bkashEnabled?: boolean;
   nagadEnabled?: boolean;
@@ -743,4 +770,103 @@ export async function adjustUserBonusBalance(workerNameOrId: string, amount: num
     return p.bonusBalance || 0;
   }
 }
+
+// --- Leaderboard Helper Functions ---
+
+export function maskWorkerId(id: string): string {
+  if (!id) return "কর্মী";
+  const clean = id.trim();
+  if (clean.length === 11 && clean.startsWith("01")) {
+    return `${clean.slice(0, 5)}***${clean.slice(8)}`;
+  }
+  if (clean.length > 7) {
+    return `${clean.slice(0, 3)}***${clean.slice(-3)}`;
+  }
+  return clean;
+}
+
+export function calculateLeaderboardForPassword(
+  submissions: Submission[],
+  profiles: UserProfile[] = [],
+  password: string,
+  category?: string
+): LeaderboardRound {
+  const trimmedPwd = (password || "").trim();
+  const matchingSubs = submissions.filter(s => {
+    const subPwd = (s.password || "").trim();
+    if (subPwd !== trimmedPwd) return false;
+    if (category && s.category && s.category !== category) return false;
+    return true;
+  });
+
+  // Count approved submissions first
+  const approvedSubs = matchingSubs.filter(s => s.status === "approved");
+  const workingPool = approvedSubs.length > 0 ? approvedSubs : matchingSubs;
+
+  const profileByChatId = new Map<string, UserProfile>();
+  const profileByWallet = new Map<string, UserProfile>();
+  profiles.forEach(p => {
+    if (p.telegramChatId) profileByChatId.set(String(p.telegramChatId), p);
+    if (p.walletNumber) profileByWallet.set(p.walletNumber, p);
+  });
+
+  const workerCounts = new Map<string, { count: number; approvedCount: number; workerId: string }>();
+
+  workingPool.forEach(sub => {
+    const rawWorker = (sub.submittedBy || "").trim();
+    if (!rawWorker) return;
+
+    let canonicalId = rawWorker;
+    const prof = profileByChatId.get(rawWorker) || profileByWallet.get(rawWorker);
+    if (prof?.walletNumber) {
+      canonicalId = prof.walletNumber;
+    }
+
+    const existing = workerCounts.get(canonicalId) || { count: 0, approvedCount: 0, workerId: canonicalId };
+    existing.count += 1;
+    if (sub.status === "approved") {
+      existing.approvedCount += 1;
+    }
+    workerCounts.set(canonicalId, existing);
+  });
+
+  const sorted = Array.from(workerCounts.values()).sort((a, b) => b.count - a.count);
+
+  const winners: LeaderboardWinner[] = sorted.slice(0, 10).map((item, index) => ({
+    rank: index + 1,
+    workerId: item.workerId,
+    maskedWorker: maskWorkerId(item.workerId),
+    count: item.count,
+    category: category || matchingSubs[0]?.category
+  }));
+
+  return {
+    id: `round_${trimmedPwd}_${Date.now()}`,
+    password: trimmedPwd,
+    category: category || matchingSubs[0]?.category,
+    completedAt: new Date().toISOString(),
+    winners,
+    totalSubmissions: matchingSubs.length,
+    totalApproved: approvedSubs.length
+  };
+}
+
+export function detectPreviousPasswords(submissions: Submission[], activePasswords: string[]): string[] {
+  const activeSet = new Set(activePasswords.map(p => (p || "").trim()).filter(Boolean));
+  const pwdMap = new Map<string, string>(); // password -> latest createdAt
+
+  submissions.forEach(s => {
+    const pwd = (s.password || "").trim();
+    if (!pwd || activeSet.has(pwd)) return;
+    const existing = pwdMap.get(pwd);
+    if (!existing || new Date(s.createdAt) > new Date(existing)) {
+      pwdMap.set(pwd, s.createdAt);
+    }
+  });
+
+  return Array.from(pwdMap.entries())
+    .sort((a, b) => new Date(b[1]).getTime() - new Date(a[1]).getTime())
+    .map(entry => entry[0]);
+}
+
 

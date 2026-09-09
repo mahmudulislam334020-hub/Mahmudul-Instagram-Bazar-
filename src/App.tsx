@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Gift,
   Flame,
-  Mail
+  Mail,
+  Trophy
 } from 'lucide-react';
 import { generateCredentials, getTotpCode, getTotpRemainingSeconds } from './utils';
 import { 
@@ -48,10 +49,12 @@ import {
   updateSubmissionSubmittedBy,
   fixAndRestoreUserIds,
   adjustUserBonusBalance,
+  calculateLeaderboardForPassword,
   Submission,
   Withdrawal,
   AppSettings,
-  UserProfile
+  UserProfile,
+  LeaderboardRound
 } from './firebaseService';
 
 import AdminFacebook from './components/AdminFacebook';
@@ -60,10 +63,11 @@ import AdminFbHotmail0fd from './components/AdminFbHotmail0fd';
 import AdminInstagram from './components/AdminInstagram';
 import AdminBot from './components/AdminBot';
 import AdminReferral from './components/AdminReferral';
+import AdminLeaderboard from './components/AdminLeaderboard';
 
 export default function App() {
   // Navigation & Role State
-  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_fb_hotmail' | 'admin_fb_hotmail_0fd' | 'admin_instagram' | 'admin_withdrawals' | 'admin_referral' | 'admin_bot'>('admin_facebook');
+  const [activeTab, setActiveTab] = useState<'admin_facebook' | 'admin_fb_hotmail' | 'admin_fb_hotmail_0fd' | 'admin_instagram' | 'admin_withdrawals' | 'admin_referral' | 'admin_bot' | 'admin_leaderboard'>('admin_facebook');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -1137,7 +1141,59 @@ export default function App() {
     e.preventDefault();
     setSettingsStatus({ type: 'saving', text: "সেটিংস ক্লাউড ডাটাবেজে সংরক্ষণ করা হচ্ছে..." });
     try {
-      await saveSettings(settings);
+      // Check if any password changed compared to existing stored settings
+      let updatedSettings = { ...settings };
+      let generatedRound: LeaderboardRound | null = null;
+      let leaderboardNotice = "";
+
+      try {
+        const existingSettings = await getSettings();
+        if (existingSettings) {
+          const allowedCats = settings.leaderboardEnabledCategories || ['facebook', 'fb_hotmail'];
+          const pwdChecks = [
+            { field: 'facebookPassword', cat: 'facebook', label: 'ফেসবুক', active: settings.facebookWorkActive !== false },
+            { field: 'fbHotmailPassword', cat: 'fb_hotmail', label: 'FB Hotmail 30+fd', active: settings.fbHotmailWorkActive !== false },
+            { field: 'fbHotmail0fdPassword', cat: 'fb_hotmail_0fd', label: 'FB Hotmail 0fd', active: settings.fbHotmail0fdWorkActive !== false },
+            { field: 'dailyPassword', cat: 'instagram', label: 'ইনস্টাগ্রাম', active: settings.instagramWorkActive !== false }
+          ].filter(p => allowedCats.includes(p.cat) && p.active);
+
+          for (const p of pwdChecks) {
+            const oldVal = ((existingSettings as any)?.[p.field] || '').trim();
+            const newVal = ((settings as any)?.[p.field] || '').trim();
+
+            if (oldVal && newVal && oldVal !== newVal) {
+              // The password was changed! Automatically calculate previous password round winners
+              const round = calculateLeaderboardForPassword(submissions, allProfiles, oldVal, p.cat);
+              if (round && round.winners && round.winners.length > 0) {
+                generatedRound = round;
+                leaderboardNotice = ` | 🏆 পূর্ববর্তী পাসওয়ার্ড (${oldVal}) এর সেরা ৩ জন কর্মীর লিডারবোর্ড স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়েছে!`;
+                break;
+              }
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn("Could not check password diff for leaderboard:", checkErr);
+      }
+
+      if (generatedRound) {
+        updatedSettings.lastLeaderboardRound = generatedRound;
+        updatedSettings.previousPassword = generatedRound.password;
+        updatedSettings.previousPasswordCategory = generatedRound.category;
+        updatedSettings.roundsHistory = [
+          generatedRound,
+          ...(settings.roundsHistory || []).filter(r => r.password !== generatedRound!.password).slice(0, 19)
+        ];
+        // Trigger telegram broadcast for the completed round
+        fetch("/api/admin/broadcast-leaderboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ round: generatedRound })
+        }).catch(() => {});
+      }
+
+      await saveSettings(updatedSettings);
+      setAppSettings(updatedSettings);
 
       // Invalidate backend / bot settings cache so changes apply immediately
       fetch("/api/admin/invalidate-cache", { method: "POST" }).catch(() => {});
@@ -1166,7 +1222,7 @@ export default function App() {
 
       setSettingsStatus({ 
         type: 'success', 
-        text: `অভিনন্দন! আপনার সিস্টেম সেটিংস সফলভাবে সংরক্ষিত ও আপডেট হয়েছে।${whInfo}` 
+        text: `অভিনন্দন! আপনার সিস্টেম সেটিংস সফলভাবে সংরক্ষিত ও আপডেট হয়েছে।${whInfo}${leaderboardNotice}` 
       });
       await loadAllData();
       // Clear after 6 seconds
@@ -1647,6 +1703,10 @@ export default function App() {
             <button onClick={() => { setActiveTab('admin_bot'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_bot' ? 'bg-indigo-950 border border-indigo-800/50 text-indigo-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <Settings size={16} />
               <span>টেলিগ্রাম বট সেটিংস (Bot)</span>
+            </button>
+            <button onClick={() => { setActiveTab('admin_leaderboard'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'admin_leaderboard' ? 'bg-amber-950/80 border border-amber-500/50 text-amber-300 shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Trophy size={16} className="text-amber-400" />
+              <span>সেরা কর্মী লিডারবোর্ড (Leaderboard)</span>
             </button>
           </nav>
 
@@ -2242,6 +2302,16 @@ export default function App() {
               handleSendBroadcast={handleSendBroadcast}
               isBroadcasting={isBroadcasting}
               broadcastStatus={broadcastStatus}
+            />
+          )}
+
+          {/* ADMIN: LEADERBOARD TAB */}
+          {activeTab === 'admin_leaderboard' && (
+            <AdminLeaderboard
+              settings={settings}
+              setSettings={setAppSettings}
+              submissions={submissions}
+              profiles={allProfiles}
             />
           )}
         </>

@@ -563,16 +563,6 @@ export function formatLeaderboardMessage(round: LeaderboardRound | undefined, se
     return `${icon} <b>${idx + 1}ম স্থান:</b> <code>${masked}</code> — <b>${w.count}টি কাজ</b>`;
   }).join("\n");
 
-  let userRankText = "";
-  if (!round.isManual && (profile?.walletNumber || profile?.telegramChatId || chatId)) {
-    const myWallet = (profile?.walletNumber || "").trim();
-    const myChat = String(profile?.telegramChatId || chatId || "");
-    const myWinner = round.winners.find(w => w.workerId === myWallet || w.workerId === myChat);
-    if (myWinner) {
-      userRankText = `\n👤 <b>আপনার অবস্থান:</b> #${myWinner.rank} (${myWinner.count}টি কাজ)\n`;
-    }
-  }
-
   const categoryName = round.category === "facebook" ? "ফেসবুক (Facebook)" 
     : round.category === "fb_hotmail" ? "FB Hotmail 30+fd" 
     : round.category === "fb_hotmail_0fd" ? "FB Hotmail 0fd" 
@@ -584,8 +574,7 @@ export function formatLeaderboardMessage(round: LeaderboardRound | undefined, se
   return `🏆 <b>পূর্ববর্তী রাউন্ডের সেরা ৩ জন কর্মী (Leaderboard)</b> 🏆\n\n` +
          `${pwdDisplay}` +
          `🏷️ <b>ক্যাটাগরি:</b> ${categoryName}\n\n` +
-         `${winnersList}\n` +
-         `${userRankText}\n` +
+         `${winnersList}\n\n` +
          `━━━━━━━━━━━━━━━━━━━━━\n` +
          `${bonusNoticeBlock}\n` +
          `━━━━━━━━━━━━━━━━━━━━━\n` +

@@ -108,7 +108,8 @@ export default function App() {
 
   const handleAdminLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminPasswordInput) {
+    const trimmedInput = adminPasswordInput.trim();
+    if (!trimmedInput) {
       setLoginError("পাসওয়ার্ড প্রদান করুন!");
       return;
     }
@@ -120,7 +121,7 @@ export default function App() {
       const response = await fetch("/api/admin/verify-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: adminPasswordInput })
+        body: JSON.stringify({ password: trimmedInput })
       });
       if (response.ok) {
         const data = await response.json();
@@ -143,8 +144,8 @@ export default function App() {
     }
 
     // Client-side fallback check (for serverless / static deployment)
-    const expectedPass = settings.adminPassword || "admin123";
-    if (adminPasswordInput === expectedPass) {
+    const expectedPass = (settings.adminPassword || "admin123").trim();
+    if (trimmedInput === expectedPass) {
       setIsAdmin(true);
       sessionStorage.setItem("is_admin_logged_in", "true");
       setShowLoginModal(false);

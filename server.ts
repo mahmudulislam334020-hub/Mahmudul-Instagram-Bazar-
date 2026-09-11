@@ -194,8 +194,9 @@ app.use((req, res, next) => {
     const { password } = req.body;
     try {
       const settings = await getGlobalSettings();
-      const adminPass = settings?.adminPassword || "admin123";
-      if (password === adminPass) {
+      const adminPass = (settings?.adminPassword || "admin123").trim();
+      const inputPass = String(password || "").trim();
+      if (inputPass === adminPass) {
         res.json({ success: true });
       } else {
         res.json({ success: false });

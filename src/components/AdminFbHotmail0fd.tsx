@@ -822,7 +822,7 @@ export default function AdminFbHotmail0fd({
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={settings.fbHotmail0fdWorkActive !== false}
+                  checked={settings.fbHotmail0fdWorkActive === true}
                   onChange={(e) => setAppSettings(prev => ({ ...prev, fbHotmail0fdWorkActive: e.target.checked }))}
                   className="sr-only peer"
                 />

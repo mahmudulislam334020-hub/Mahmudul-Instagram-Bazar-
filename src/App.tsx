@@ -177,15 +177,37 @@ export default function App() {
   });
 
   // App Config & Pricing
-  const [settings, setAppSettings] = useState<AppSettings>({
-    ratePerId: 45,
-    telegramBotToken: "",
-    telegramChatId: "",
-    adminPassword: "admin123",
-    usernamePrefix: "",
-    dailyPassword: "",
-    minWithdraw: 50,
-    instagramWorkActive: true
+  const [settings, setAppSettings] = useState<AppSettings>(() => {
+    try {
+      const cached = localStorage.getItem("fallback_settings");
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {}
+    return {
+      ratePerId: 45,
+      facebookRatePerId: 45,
+      fbHotmailRatePerId: 50,
+      fbHotmail0fdRatePerId: 40,
+      telegramBotToken: localStorage.getItem("permanent_bot_token_backup") || "",
+      telegramChatId: localStorage.getItem("permanent_chat_id_backup") || "",
+      adminPassword: "admin123",
+      usernamePrefix: "",
+      dailyPassword: "",
+      minWithdraw: 50,
+      instagramWorkActive: true,
+      facebookWorkActive: false,
+      fbHotmailWorkActive: false,
+      fbHotmail0fdWorkActive: false,
+      leaderboardEnabled: true,
+      withdrawalsEnabled: true,
+      bkashEnabled: true,
+      nagadEnabled: true,
+      rocketEnabled: true,
+      referralBonusAmount: 10,
+      minReferralWithdrawLimit: 500,
+      referralSystemEnabled: true
+    };
   });
 
   // DB Data States
@@ -364,7 +386,22 @@ export default function App() {
     setLoading(true);
     try {
       const fetchedSettings = await getSettings();
-      setAppSettings(fetchedSettings);
+      setAppSettings(prev => ({
+        ...prev,
+        ...fetchedSettings,
+        // Guard: prevent losing bot credentials if fetched had empty string due to transient issue
+        telegramBotToken: fetchedSettings.telegramBotToken || prev.telegramBotToken || '',
+        telegramChatId: fetchedSettings.telegramChatId || prev.telegramChatId || '',
+        leaderboardEnabled: fetchedSettings.leaderboardEnabled !== undefined ? fetchedSettings.leaderboardEnabled : (prev.leaderboardEnabled !== undefined ? prev.leaderboardEnabled : true),
+        facebookWorkActive: fetchedSettings.facebookWorkActive !== undefined ? fetchedSettings.facebookWorkActive : prev.facebookWorkActive,
+        facebookRatePerId: fetchedSettings.facebookRatePerId !== undefined ? fetchedSettings.facebookRatePerId : prev.facebookRatePerId,
+        fbHotmailWorkActive: fetchedSettings.fbHotmailWorkActive !== undefined ? fetchedSettings.fbHotmailWorkActive : prev.fbHotmailWorkActive,
+        fbHotmailRatePerId: fetchedSettings.fbHotmailRatePerId !== undefined ? fetchedSettings.fbHotmailRatePerId : prev.fbHotmailRatePerId,
+        fbHotmail0fdWorkActive: fetchedSettings.fbHotmail0fdWorkActive !== undefined ? fetchedSettings.fbHotmail0fdWorkActive : prev.fbHotmail0fdWorkActive,
+        fbHotmail0fdRatePerId: fetchedSettings.fbHotmail0fdRatePerId !== undefined ? fetchedSettings.fbHotmail0fdRatePerId : prev.fbHotmail0fdRatePerId,
+        instagramWorkActive: fetchedSettings.instagramWorkActive !== undefined ? fetchedSettings.instagramWorkActive : prev.instagramWorkActive,
+        ratePerId: fetchedSettings.ratePerId !== undefined ? fetchedSettings.ratePerId : prev.ratePerId,
+      }));
 
       const fetchedSubs = await getSubmissions();
       setSubmissions(fetchedSubs);
@@ -1150,25 +1187,103 @@ export default function App() {
       try {
         const existingSettings = await getSettings();
         if (existingSettings) {
-          const allowedCats = settings.leaderboardEnabledCategories || ['facebook', 'fb_hotmail'];
-          const pwdChecks = [
-            { field: 'facebookPassword', cat: 'facebook', label: 'ফেসবুক', active: settings.facebookWorkActive !== false },
-            { field: 'fbHotmailPassword', cat: 'fb_hotmail', label: 'FB Hotmail 30+fd', active: settings.fbHotmailWorkActive !== false },
-            { field: 'fbHotmail0fdPassword', cat: 'fb_hotmail_0fd', label: 'FB Hotmail 0fd', active: settings.fbHotmail0fdWorkActive !== false },
-            { field: 'dailyPassword', cat: 'instagram', label: 'ইনস্টাগ্রাম', active: settings.instagramWorkActive !== false }
-          ].filter(p => allowedCats.includes(p.cat) && p.active);
+          // Safeguard: Merge by active tab domain to prevent cross-tab setting overwrites
+          if (activeTab === 'admin_facebook') {
+            updatedSettings = {
+              ...existingSettings,
+              facebookWorkActive: settings.facebookWorkActive !== undefined ? settings.facebookWorkActive : existingSettings.facebookWorkActive,
+              facebookRatePerId: settings.facebookRatePerId !== undefined ? settings.facebookRatePerId : existingSettings.facebookRatePerId,
+              facebookPassword: settings.facebookPassword !== undefined ? settings.facebookPassword : existingSettings.facebookPassword,
+              facebookFirstName: settings.facebookFirstName !== undefined ? settings.facebookFirstName : existingSettings.facebookFirstName,
+              facebookLastName: settings.facebookLastName !== undefined ? settings.facebookLastName : existingSettings.facebookLastName,
+            };
+          } else if (activeTab === 'admin_fb_hotmail') {
+            updatedSettings = {
+              ...existingSettings,
+              fbHotmailWorkActive: settings.fbHotmailWorkActive !== undefined ? settings.fbHotmailWorkActive : existingSettings.fbHotmailWorkActive,
+              fbHotmailRatePerId: settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : existingSettings.fbHotmailRatePerId,
+              fbHotmailPassword: settings.fbHotmailPassword !== undefined ? settings.fbHotmailPassword : existingSettings.fbHotmailPassword,
+              fbHotmailFirstName: settings.fbHotmailFirstName !== undefined ? settings.fbHotmailFirstName : existingSettings.fbHotmailFirstName,
+              fbHotmailLastName: settings.fbHotmailLastName !== undefined ? settings.fbHotmailLastName : existingSettings.fbHotmailLastName,
+            };
+          } else if (activeTab === 'admin_fb_hotmail_0fd') {
+            updatedSettings = {
+              ...existingSettings,
+              fbHotmail0fdWorkActive: settings.fbHotmail0fdWorkActive !== undefined ? settings.fbHotmail0fdWorkActive : existingSettings.fbHotmail0fdWorkActive,
+              fbHotmail0fdRatePerId: settings.fbHotmail0fdRatePerId !== undefined ? settings.fbHotmail0fdRatePerId : existingSettings.fbHotmail0fdRatePerId,
+              fbHotmail0fdPassword: settings.fbHotmail0fdPassword !== undefined ? settings.fbHotmail0fdPassword : existingSettings.fbHotmail0fdPassword,
+              fbHotmail0fdFirstName: settings.fbHotmail0fdFirstName !== undefined ? settings.fbHotmail0fdFirstName : existingSettings.fbHotmail0fdFirstName,
+              fbHotmail0fdLastName: settings.fbHotmail0fdLastName !== undefined ? settings.fbHotmail0fdLastName : existingSettings.fbHotmail0fdLastName,
+            };
+          } else if (activeTab === 'admin_instagram') {
+            updatedSettings = {
+              ...existingSettings,
+              instagramWorkActive: settings.instagramWorkActive !== undefined ? settings.instagramWorkActive : existingSettings.instagramWorkActive,
+              ratePerId: settings.ratePerId !== undefined ? settings.ratePerId : existingSettings.ratePerId,
+              dailyPassword: settings.dailyPassword !== undefined ? settings.dailyPassword : existingSettings.dailyPassword,
+              usernamePrefix: settings.usernamePrefix !== undefined ? settings.usernamePrefix : existingSettings.usernamePrefix,
+            };
+          } else if (activeTab === 'admin_bot') {
+            updatedSettings = {
+              ...existingSettings,
+              telegramBotToken: settings.telegramBotToken || existingSettings.telegramBotToken,
+              telegramChatId: settings.telegramChatId || existingSettings.telegramChatId,
+              webhookUrl: settings.webhookUrl !== undefined ? settings.webhookUrl : existingSettings.webhookUrl,
+              botUsername: settings.botUsername !== undefined ? settings.botUsername : existingSettings.botUsername,
+            };
+          } else if (activeTab === 'admin_withdrawals') {
+            updatedSettings = {
+              ...existingSettings,
+              withdrawalsEnabled: settings.withdrawalsEnabled !== undefined ? settings.withdrawalsEnabled : existingSettings.withdrawalsEnabled,
+              minWithdraw: settings.minWithdraw !== undefined ? settings.minWithdraw : existingSettings.minWithdraw,
+              bkashEnabled: settings.bkashEnabled !== undefined ? settings.bkashEnabled : existingSettings.bkashEnabled,
+              nagadEnabled: settings.nagadEnabled !== undefined ? settings.nagadEnabled : existingSettings.nagadEnabled,
+              rocketEnabled: settings.rocketEnabled !== undefined ? settings.rocketEnabled : existingSettings.rocketEnabled,
+            };
+          } else if (activeTab === 'admin_referral') {
+            updatedSettings = {
+              ...existingSettings,
+              referralSystemEnabled: settings.referralSystemEnabled !== undefined ? settings.referralSystemEnabled : existingSettings.referralSystemEnabled,
+              referralBonusAmount: settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : existingSettings.referralBonusAmount,
+              minReferralWithdrawLimit: settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : existingSettings.minReferralWithdrawLimit,
+            };
+          } else if (activeTab === 'admin_leaderboard') {
+            updatedSettings = {
+              ...existingSettings,
+              leaderboardEnabled: settings.leaderboardEnabled !== undefined ? settings.leaderboardEnabled : existingSettings.leaderboardEnabled,
+              leaderboardEnabledCategories: settings.leaderboardEnabledCategories || existingSettings.leaderboardEnabledCategories,
+            };
+          } else {
+            updatedSettings = {
+              ...existingSettings,
+              ...settings,
+              telegramBotToken: settings.telegramBotToken || existingSettings.telegramBotToken,
+              telegramChatId: settings.telegramChatId || existingSettings.telegramChatId,
+            };
+          }
 
-          for (const p of pwdChecks) {
-            const oldVal = ((existingSettings as any)?.[p.field] || '').trim();
-            const newVal = ((settings as any)?.[p.field] || '').trim();
+          // Only calculate leaderboard if leaderboard system is enabled
+          if (settings.leaderboardEnabled !== false && existingSettings.leaderboardEnabled !== false) {
+            const allowedCats = settings.leaderboardEnabledCategories || ['facebook', 'fb_hotmail'];
+            const pwdChecks = [
+              { field: 'facebookPassword', cat: 'facebook', label: 'ফেসবুক', active: settings.facebookWorkActive !== false },
+              { field: 'fbHotmailPassword', cat: 'fb_hotmail', label: 'FB Hotmail 30+fd', active: settings.fbHotmailWorkActive !== false },
+              { field: 'fbHotmail0fdPassword', cat: 'fb_hotmail_0fd', label: 'FB Hotmail 0fd', active: settings.fbHotmail0fdWorkActive !== false },
+              { field: 'dailyPassword', cat: 'instagram', label: 'ইনস্টাগ্রাম', active: settings.instagramWorkActive !== false }
+            ].filter(p => allowedCats.includes(p.cat) && p.active);
 
-            if (oldVal && newVal && oldVal !== newVal) {
-              // The password was changed! Automatically calculate previous password round winners
-              const round = calculateLeaderboardForPassword(submissions, allProfiles, oldVal, p.cat);
-              if (round && round.winners && round.winners.length > 0) {
-                generatedRound = round;
-                leaderboardNotice = ` | 🏆 পূর্ববর্তী পাসওয়ার্ড (${oldVal}) এর সেরা ৩ জন কর্মীর লিডারবোর্ড স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়েছে!`;
-                break;
+            for (const p of pwdChecks) {
+              const oldVal = ((existingSettings as any)?.[p.field] || '').trim();
+              const newVal = ((settings as any)?.[p.field] || '').trim();
+
+              if (oldVal && newVal && oldVal !== newVal) {
+                // The password was changed! Automatically calculate previous password round winners
+                const round = calculateLeaderboardForPassword(submissions, allProfiles, oldVal, p.cat);
+                if (round && round.winners && round.winners.length > 0) {
+                  generatedRound = round;
+                  leaderboardNotice = ` | 🏆 পূর্ববর্তী পাসওয়ার্ড (${oldVal}) এর সেরা ৩ জন কর্মীর লিডারবোর্ড স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়েছে!`;
+                  break;
+                }
               }
             }
           }

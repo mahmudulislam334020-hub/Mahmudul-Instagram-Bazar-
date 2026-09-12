@@ -98,6 +98,7 @@ export interface AppSettings {
   leaderboardEnabledCategories?: string[]; // e.g. ['facebook', 'fb_hotmail']
   leaderboardBonusNotice?: string; // e.g. 'বোনাস পেতে হলে কমপক্ষে ৬০টি আইডি জমা করতে হবে'
   leaderboardMinRequiredIds?: number; // default 60
+  leaderboardEnabled?: boolean; // master toggle for leaderboard system
 
   withdrawalsEnabled?: boolean;
   bkashEnabled?: boolean;
@@ -148,10 +149,14 @@ const saveFallbackWithdrawals = (withdraws: Withdrawal[]) => {
 
 const getFallbackSettings = (): AppSettings => {
   const data = localStorage.getItem("fallback_settings");
-  return data ? JSON.parse(data) : {
+  const parsed = data ? JSON.parse(data) : null;
+  const tokenBackup = localStorage.getItem("permanent_bot_token_backup") || "";
+  const chatBackup = localStorage.getItem("permanent_chat_id_backup") || "";
+
+  const base: AppSettings = {
     ratePerId: 45, // default 45 Taka per ID
-    telegramBotToken: "",
-    telegramChatId: "",
+    telegramBotToken: tokenBackup,
+    telegramChatId: chatBackup,
     adminPassword: "admin123",
     usernamePrefix: "",
     dailyPassword: "",
@@ -169,6 +174,7 @@ const getFallbackSettings = (): AppSettings => {
     fbHotmailLastName: "",
     fbHotmail0fdWorkActive: false,
     fbHotmail0fdRatePerId: 40,
+    leaderboardEnabled: true,
     withdrawalsEnabled: true,
     bkashEnabled: true,
     nagadEnabled: true,
@@ -178,14 +184,35 @@ const getFallbackSettings = (): AppSettings => {
     referralSystemEnabled: true,
     botUsername: ""
   };
+
+  if (parsed) {
+    return {
+      ...base,
+      ...parsed,
+      telegramBotToken: parsed.telegramBotToken || tokenBackup,
+      telegramChatId: parsed.telegramChatId || chatBackup,
+      leaderboardEnabled: parsed.leaderboardEnabled !== undefined ? parsed.leaderboardEnabled : true
+    };
+  }
+  return base;
 };
 
 const saveFallbackSettings = (settings: AppSettings) => {
-  localStorage.setItem("fallback_settings", JSON.stringify(settings));
+  try {
+    localStorage.setItem("fallback_settings", JSON.stringify(settings));
+    if (settings.telegramBotToken) {
+      localStorage.setItem("permanent_bot_token_backup", settings.telegramBotToken);
+    }
+    if (settings.telegramChatId) {
+      localStorage.setItem("permanent_chat_id_backup", settings.telegramChatId);
+    }
+  } catch (e) {
+    console.warn("Could not save to localStorage fallback_settings:", e);
+  }
 };
 
-// Helper function to race Firestore calls against a short timeout
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 2000): Promise<T> {
+// Helper function to race Firestore calls against a sensible timeout (10s default)
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
   let timeoutId: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -400,27 +427,171 @@ export async function updateWithdrawalStatus(id: string, status: "approved" | "r
 export async function getSettings(): Promise<AppSettings> {
   try {
     const docRef = doc(db, "settings", "global");
-    const docSnap = await withTimeout(getDoc(docRef), 2000);
+    const docSnap = await withTimeout(getDoc(docRef), 12000);
     if (docSnap.exists()) {
-      return docSnap.data() as AppSettings;
+      const data = docSnap.data() as AppSettings;
+
+      // Defensive check: if telegramBotToken is missing or blank in global doc, check if bot_backup exists in Firestore!
+      if (!data.telegramBotToken || !data.telegramBotToken.trim()) {
+        try {
+          const backupRef = doc(db, "settings", "bot_backup");
+          const backupSnap = await getDoc(backupRef);
+          if (backupSnap.exists()) {
+            const backupData = backupSnap.data();
+            if (backupData?.telegramBotToken) {
+              data.telegramBotToken = backupData.telegramBotToken;
+              if (!data.telegramChatId && backupData.telegramChatId) {
+                data.telegramChatId = backupData.telegramChatId;
+              }
+              // Automatically self-heal the global settings document in Firestore!
+              setDoc(docRef, {
+                telegramBotToken: data.telegramBotToken,
+                telegramChatId: data.telegramChatId || ""
+              }, { merge: true }).catch(() => {});
+            }
+          }
+        } catch (backupErr) {
+          console.warn("Notice checking bot_backup in Firestore:", backupErr);
+        }
+      }
+
+      // Defensive check: if work settings or rates are missing in global doc, check work_backup in Firestore!
+      if (data.facebookWorkActive === undefined || data.fbHotmailWorkActive === undefined || data.ratePerId === undefined) {
+        try {
+          const wBackupRef = doc(db, "settings", "work_backup");
+          const wBackupSnap = await getDoc(wBackupRef);
+          if (wBackupSnap.exists()) {
+            const wData = wBackupSnap.data();
+            if (data.facebookWorkActive === undefined && wData.facebookWorkActive !== undefined) data.facebookWorkActive = wData.facebookWorkActive;
+            if (data.facebookRatePerId === undefined && wData.facebookRatePerId !== undefined) data.facebookRatePerId = wData.facebookRatePerId;
+            if (data.fbHotmailWorkActive === undefined && wData.fbHotmailWorkActive !== undefined) data.fbHotmailWorkActive = wData.fbHotmailWorkActive;
+            if (data.fbHotmailRatePerId === undefined && wData.fbHotmailRatePerId !== undefined) data.fbHotmailRatePerId = wData.fbHotmailRatePerId;
+            if (data.fbHotmail0fdWorkActive === undefined && wData.fbHotmail0fdWorkActive !== undefined) data.fbHotmail0fdWorkActive = wData.fbHotmail0fdWorkActive;
+            if (data.fbHotmail0fdRatePerId === undefined && wData.fbHotmail0fdRatePerId !== undefined) data.fbHotmail0fdRatePerId = wData.fbHotmail0fdRatePerId;
+            if (data.instagramWorkActive === undefined && wData.instagramWorkActive !== undefined) data.instagramWorkActive = wData.instagramWorkActive;
+            if (data.ratePerId === undefined && wData.ratePerId !== undefined) data.ratePerId = wData.ratePerId;
+          }
+        } catch (wErr) {
+          console.warn("Notice checking work_backup in Firestore:", wErr);
+        }
+      }
+
+      // Check localStorage permanent backup if still empty
+      if (!data.telegramBotToken || !data.telegramBotToken.trim()) {
+        const localBackup = localStorage.getItem("permanent_bot_token_backup");
+        if (localBackup) {
+          data.telegramBotToken = localBackup;
+        }
+      }
+      if (!data.telegramChatId || !data.telegramChatId.trim()) {
+        const localChat = localStorage.getItem("permanent_chat_id_backup");
+        if (localChat) {
+          data.telegramChatId = localChat;
+        }
+      }
+
+      // If we now have valid tokens, save to local backup & fallback storage immediately
+      if (data.telegramBotToken) {
+        localStorage.setItem("permanent_bot_token_backup", data.telegramBotToken);
+      }
+      if (data.telegramChatId) {
+        localStorage.setItem("permanent_chat_id_backup", data.telegramChatId);
+      }
+      saveFallbackSettings(data);
+
+      return data;
     } else {
       const defaultSettings = getFallbackSettings();
-      await withTimeout(setDoc(docRef, defaultSettings));
+      // Only setDoc if we actually have settings, using merge
+      await withTimeout(setDoc(docRef, defaultSettings, { merge: true }), 12000);
       return defaultSettings;
     }
   } catch (error) {
-    console.warn("Firestore settings read error, using fallback:", error);
-    return getFallbackSettings();
+    console.warn("Firestore settings read error, using fallback storage:", error);
+    const fallback = getFallbackSettings();
+    const tokenBackup = localStorage.getItem("permanent_bot_token_backup");
+    const chatBackup = localStorage.getItem("permanent_chat_id_backup");
+    if (!fallback.telegramBotToken && tokenBackup) {
+      fallback.telegramBotToken = tokenBackup;
+    }
+    if (!fallback.telegramChatId && chatBackup) {
+      fallback.telegramChatId = chatBackup;
+    }
+    return fallback;
   }
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  // Prevent accidental blanking out of critical credentials
+  let tokenToSave = settings.telegramBotToken ? settings.telegramBotToken.trim() : "";
+  let chatToSave = settings.telegramChatId ? settings.telegramChatId.trim() : "";
+
+  if (!tokenToSave) {
+    const tokenBackup = localStorage.getItem("permanent_bot_token_backup");
+    if (tokenBackup) {
+      tokenToSave = tokenBackup.trim();
+    }
+  } else {
+    localStorage.setItem("permanent_bot_token_backup", tokenToSave);
+  }
+
+  if (!chatToSave) {
+    const chatBackup = localStorage.getItem("permanent_chat_id_backup");
+    if (chatBackup) {
+      chatToSave = chatBackup.trim();
+    }
+  } else {
+    localStorage.setItem("permanent_chat_id_backup", chatToSave);
+  }
+
+  const safeSettings: AppSettings = {
+    ...settings,
+    telegramBotToken: tokenToSave,
+    telegramChatId: chatToSave
+  };
+
+  // Always keep localStorage fallback synchronized immediately
+  saveFallbackSettings(safeSettings);
+
   try {
     const docRef = doc(db, "settings", "global");
-    await withTimeout(setDoc(docRef, settings));
+    // CRITICAL: use { merge: true } so untouched fields in Firestore are NEVER deleted or overwritten
+    await withTimeout(setDoc(docRef, safeSettings, { merge: true }), 12000);
+
+    // Also maintain secondary dedicated cloud backup in Firestore at settings/bot_backup
+    if (tokenToSave) {
+      try {
+        const backupRef = doc(db, "settings", "bot_backup");
+        setDoc(backupRef, {
+          telegramBotToken: tokenToSave,
+          telegramChatId: chatToSave,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => {});
+      } catch (e) {
+        // Non-blocking secondary backup
+      }
+    }
+
+    // Maintain secondary dedicated cloud backup for work active states and custom rates
+    try {
+      const workBackupRef = doc(db, "settings", "work_backup");
+      setDoc(workBackupRef, {
+        facebookWorkActive: safeSettings.facebookWorkActive,
+        facebookRatePerId: safeSettings.facebookRatePerId,
+        fbHotmailWorkActive: safeSettings.fbHotmailWorkActive,
+        fbHotmailRatePerId: safeSettings.fbHotmailRatePerId,
+        fbHotmail0fdWorkActive: safeSettings.fbHotmail0fdWorkActive,
+        fbHotmail0fdRatePerId: safeSettings.fbHotmail0fdRatePerId,
+        instagramWorkActive: safeSettings.instagramWorkActive,
+        ratePerId: safeSettings.ratePerId,
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+    } catch (e) {
+      // Non-blocking work backup
+    }
   } catch (error) {
-    console.warn("Firestore settings write error, using fallback:", error);
-    saveFallbackSettings(settings);
+    console.warn("Firestore settings write error, saved to local fallback:", error);
+    saveFallbackSettings(safeSettings);
   }
 }
 

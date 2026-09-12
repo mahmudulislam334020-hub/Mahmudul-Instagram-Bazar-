@@ -19,7 +19,8 @@ import {
   Trash2,
   Sliders,
   Check,
-  Edit3
+  Edit3,
+  Power
 } from 'lucide-react';
 import { 
   Submission, 
@@ -84,6 +85,32 @@ export default function AdminLeaderboard({
       });
     } finally {
       setIsSavingNotice(false);
+    }
+  };
+
+  // Master ON/OFF toggle for Leaderboard System
+  const handleToggleLeaderboardMaster = async () => {
+    const newStatus = settings.leaderboardEnabled === false ? true : false;
+    const updatedSettings: AppSettings = {
+      ...settings,
+      leaderboardEnabled: newStatus
+    };
+    try {
+      await saveSettings(updatedSettings);
+      setSettings(updatedSettings);
+      fetch("/api/admin/invalidate-cache", { method: "POST" }).catch(() => {});
+      setBroadcastStatus({
+        success: true,
+        message: newStatus 
+          ? '🟢 লিডারবোর্ড সিস্টেম সফলভাবে চালু (ON) করা হয়েছে!' 
+          : '🔴 লিডারবোর্ড সিস্টেম সফলভাবে বন্ধ (OFF) করা হয়েছে!'
+      });
+      setTimeout(() => setBroadcastStatus(null), 4500);
+    } catch (err: any) {
+      setBroadcastStatus({
+        success: false,
+        message: `❌ এরর: ${err?.message || err}`
+      });
     }
   };
 
@@ -378,7 +405,20 @@ export default function AdminLeaderboard({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap self-start md:self-center">
-            {currentRound && (
+            {/* Master Toggle */}
+            <button
+              onClick={handleToggleLeaderboardMaster}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg ${
+                settings.leaderboardEnabled !== false
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/20'
+              }`}
+            >
+              <Power size={15} />
+              <span>লিডারবোর্ড: {settings.leaderboardEnabled !== false ? "সক্রিয় (ON)" : "নিষ্ক্রিয় (OFF)"}</span>
+            </button>
+
+            {currentRound && settings.leaderboardEnabled !== false && (
               <button
                 onClick={() => handleBroadcast(currentRound)}
                 disabled={isBroadcasting}
@@ -390,6 +430,21 @@ export default function AdminLeaderboard({
             )}
           </div>
         </div>
+
+        {settings.leaderboardEnabled === false && (
+          <div className="mt-4 bg-rose-950/60 border border-rose-600/40 rounded-xl p-3.5 flex items-center justify-between gap-4 text-rose-200 text-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle size={18} className="text-rose-400 shrink-0" />
+              <span>লিডারবোর্ড সিস্টেম বন্ধ (OFF) রয়েছে — টেলিগ্রাম বট মেনু থেকে লিডারবোর্ড বাটনটি লুকানো থাকবে।</span>
+            </div>
+            <button
+              onClick={handleToggleLeaderboardMaster}
+              className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs shrink-0"
+            >
+              চালু করুন
+            </button>
+          </div>
+        )}
 
         {broadcastStatus && (
           <div className={`mt-4 p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${

@@ -50,10 +50,31 @@ async function getGlobalSettings() {
     if (!data.fields) return null;
     
     const fields = data.fields;
+    let botToken = (fields.telegramBotToken?.stringValue || "").trim();
+    let chatId = (fields.telegramChatId?.stringValue || "").trim();
+
+    if (!botToken) {
+      try {
+        const backupUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/bot_backup?key=${apiKey}`;
+        const bRes = await fetch(backupUrl);
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          if (bData.fields?.telegramBotToken?.stringValue) {
+            botToken = bData.fields.telegramBotToken.stringValue.trim();
+            if (!chatId && bData.fields?.telegramChatId?.stringValue) {
+              chatId = bData.fields.telegramChatId.stringValue.trim();
+            }
+          }
+        }
+      } catch (e) {
+        // Backup read ignore
+      }
+    }
+
     return {
       adminPassword: fields.adminPassword?.stringValue || "admin123",
-      telegramBotToken: fields.telegramBotToken?.stringValue || "",
-      telegramChatId: fields.telegramChatId?.stringValue || "",
+      telegramBotToken: botToken,
+      telegramChatId: chatId,
       usernamePrefix: fields.usernamePrefix?.stringValue || "",
       dailyPassword: fields.dailyPassword?.stringValue || "",
       minWithdraw: parseFirestoreNum(fields.minWithdraw, 50),
@@ -68,12 +89,21 @@ async function getGlobalSettings() {
       fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
       fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",
       fbHotmailLastName: fields.fbHotmailLastName?.stringValue || "",
-      fbHotmail0fdWorkActive: fields.fbHotmail0fdWorkActive?.booleanValue !== false,
+      fbHotmail0fdWorkActive: fields.fbHotmail0fdWorkActive?.booleanValue === true,
       fbHotmail0fdRatePerId: parseFirestoreNum(fields.fbHotmail0fdRatePerId, 40),
       fbHotmail0fdPassword: fields.fbHotmail0fdPassword?.stringValue || "",
       fbHotmail0fdFirstName: fields.fbHotmail0fdFirstName?.stringValue || "",
       fbHotmail0fdLastName: fields.fbHotmail0fdLastName?.stringValue || "",
-      webhookUrl: fields.webhookUrl?.stringValue || ""
+      instagramWorkActive: fields.instagramWorkActive?.booleanValue !== false,
+      webhookUrl: fields.webhookUrl?.stringValue || "",
+      leaderboardEnabled: fields.leaderboardEnabled?.booleanValue !== false,
+      withdrawalsEnabled: fields.withdrawalsEnabled?.booleanValue !== false,
+      bkashEnabled: fields.bkashEnabled?.booleanValue !== false,
+      nagadEnabled: fields.nagadEnabled?.booleanValue === true,
+      rocketEnabled: fields.rocketEnabled?.booleanValue === true,
+      referralSystemEnabled: fields.referralSystemEnabled?.booleanValue !== false,
+      referralBonusAmount: parseFirestoreNum(fields.referralBonusAmount, 10),
+      minReferralWithdrawLimit: parseFirestoreNum(fields.minReferralWithdrawLimit, 500)
     };
   } catch (err) {
     console.error("Error reading global settings from REST API:", err);

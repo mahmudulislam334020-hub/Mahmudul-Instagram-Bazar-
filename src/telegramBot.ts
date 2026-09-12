@@ -27,14 +27,15 @@ import {
   calculateLeaderboardForPassword, 
   detectPreviousPasswords, 
   maskWorkerId, 
-  LeaderboardRound 
+  LeaderboardRound,
+  preserveUserEarnings 
 } from "./firebaseService";
 
 interface BotState {
   step: 
     | 'main_menu' 
     | 'awaiting_instagram_2fa_key' 
-    | 'awaiting_withdraw_balance_type'
+    | 'awaiting_withdraw_balance_type' 
     | 'awaiting_withdraw_method'
     | 'awaiting_withdraw_number'
     | 'awaiting_withdraw_amount'
@@ -52,7 +53,16 @@ interface BotState {
     | 'awaiting_fb_hotmail_0fd_token'
     | 'awaiting_fb_hotmail_0fd_complete'
     | 'awaiting_admin_broadcast_message'
-    | 'awaiting_admin_broadcast_confirm';
+    | 'awaiting_admin_broadcast_confirm'
+    | 'awaiting_admin_setting_input';
+  adminSettingInput?: {
+    field: string;
+    label: string;
+    type: 'number' | 'text';
+    min?: number;
+    max?: number;
+    menuToReturn?: string;
+  };
   broadcastData?: {
     type: 'text' | 'photo';
     text: string;
@@ -220,16 +230,109 @@ export function invalidateSettingsCache() {
   cachedSettingsTime = 0;
 }
 
+function parseBotFirestoreNum(field: any, defaultVal: number = 0): number {
+  if (!field) return defaultVal;
+  if (field.doubleValue !== undefined) return parseFloat(field.doubleValue);
+  if (field.integerValue !== undefined) return parseFloat(field.integerValue);
+  return defaultVal;
+}
+
 export async function getGlobalSettings(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && cachedSettings && (now - cachedSettingsTime < 120000)) { // 2 minutes TTL
+  if (!forceRefresh && cachedSettings && (now - cachedSettingsTime < 60000)) { // 1 minute TTL
     return cachedSettings;
   }
+
+  // 1. Try direct high-speed REST API (most reliable in Node environment)
+  try {
+    const projectId = "mahmudul-instagram-bazar";
+    const databaseId = "ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c";
+    const apiKey = "AIzaSyBEO8S2XRSMTxwcMU2JyiIr-O7ddrHNb9Y";
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global?key=${apiKey}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.fields) {
+        const fields = data.fields;
+        let botToken = (fields.telegramBotToken?.stringValue || "").trim();
+        let chatId = (fields.telegramChatId?.stringValue || "").trim();
+
+        if (!botToken) {
+          try {
+            const backupUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/bot_backup?key=${apiKey}`;
+            const bRes = await fetch(backupUrl);
+            if (bRes.ok) {
+              const bData = await bRes.json();
+              if (bData.fields?.telegramBotToken?.stringValue) {
+                botToken = bData.fields.telegramBotToken.stringValue.trim();
+                if (!chatId && bData.fields?.telegramChatId?.stringValue) {
+                  chatId = bData.fields.telegramChatId.stringValue.trim();
+                }
+              }
+            }
+          } catch (bErr) {}
+        }
+
+        cachedSettings = {
+          adminPassword: fields.adminPassword?.stringValue || "admin123",
+          telegramBotToken: botToken,
+          telegramChatId: chatId,
+          usernamePrefix: fields.usernamePrefix?.stringValue || "",
+          dailyPassword: fields.dailyPassword?.stringValue || "",
+          minWithdraw: parseBotFirestoreNum(fields.minWithdraw, 50),
+          ratePerId: parseBotFirestoreNum(fields.ratePerId, 45),
+          facebookFirstName: fields.facebookFirstName?.stringValue || "",
+          facebookLastName: fields.facebookLastName?.stringValue || "",
+          facebookPassword: fields.facebookPassword?.stringValue || "",
+          facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
+          facebookRatePerId: parseBotFirestoreNum(fields.facebookRatePerId, parseBotFirestoreNum(fields.ratePerId, 45)),
+          fbHotmailWorkActive: fields.fbHotmailWorkActive?.booleanValue !== false,
+          fbHotmailRatePerId: parseBotFirestoreNum(fields.fbHotmailRatePerId, 50),
+          fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
+          fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",
+          fbHotmailLastName: fields.fbHotmailLastName?.stringValue || "",
+          fbHotmail0fdWorkActive: fields.fbHotmail0fdWorkActive?.booleanValue === true,
+          fbHotmail0fdRatePerId: parseBotFirestoreNum(fields.fbHotmail0fdRatePerId, 40),
+          fbHotmail0fdPassword: fields.fbHotmail0fdPassword?.stringValue || "",
+          fbHotmail0fdFirstName: fields.fbHotmail0fdFirstName?.stringValue || "",
+          fbHotmail0fdLastName: fields.fbHotmail0fdLastName?.stringValue || "",
+          instagramWorkActive: fields.instagramWorkActive?.booleanValue !== false,
+          webhookUrl: fields.webhookUrl?.stringValue || "",
+          leaderboardEnabled: fields.leaderboardEnabled?.booleanValue !== false,
+          withdrawalsEnabled: fields.withdrawalsEnabled?.booleanValue !== false,
+          bkashEnabled: fields.bkashEnabled?.booleanValue !== false,
+          nagadEnabled: fields.nagadEnabled?.booleanValue === true,
+          rocketEnabled: fields.rocketEnabled?.booleanValue === true,
+          referralSystemEnabled: fields.referralSystemEnabled?.booleanValue !== false,
+          referralBonusAmount: parseBotFirestoreNum(fields.referralBonusAmount, 10),
+          minReferralWithdrawLimit: parseBotFirestoreNum(fields.minReferralWithdrawLimit, 500)
+        };
+        cachedSettingsTime = now;
+        return cachedSettings;
+      }
+    }
+  } catch (restErr) {
+    console.warn("[Telegram Bot] REST settings fetch failed, falling back to Firestore SDK:", restErr);
+  }
+
+  // 2. Fallback to Firestore SDK if REST fails
   try {
     const settingsRef = doc(db, "settings", "global");
     const settingsSnap = await getDoc(settingsRef);
     if (settingsSnap.exists()) {
       cachedSettings = settingsSnap.data();
+      // If token is missing, check bot_backup document
+      if (!cachedSettings?.telegramBotToken) {
+        try {
+          const backupSnap = await getDoc(doc(db, "settings", "bot_backup"));
+          if (backupSnap.exists() && backupSnap.data()?.telegramBotToken) {
+            cachedSettings.telegramBotToken = backupSnap.data()?.telegramBotToken;
+            if (!cachedSettings.telegramChatId && backupSnap.data()?.telegramChatId) {
+              cachedSettings.telegramChatId = backupSnap.data()?.telegramChatId;
+            }
+          }
+        } catch (e) {}
+      }
       cachedSettingsTime = now;
       return cachedSettings;
     }
@@ -241,7 +344,17 @@ export async function getGlobalSettings(forceRefresh = false) {
       console.warn("Notice fetching global settings:", err?.message || err);
     }
   }
-  return cachedSettings || { ratePerId: 45, facebookRatePerId: 45, instagramRatePerId: 45 };
+  return cachedSettings || { 
+    ratePerId: 45, 
+    facebookRatePerId: 45, 
+    fbHotmailRatePerId: 50,
+    fbHotmail0fdRatePerId: 40,
+    leaderboardEnabled: true,
+    facebookWorkActive: false,
+    fbHotmailWorkActive: false,
+    fbHotmail0fdWorkActive: false,
+    instagramWorkActive: false
+  };
 }
 
 const userStatsCache = new Map<string, { data: any; time: number }>();
@@ -588,7 +701,11 @@ export function isBroadcastAdmin(chatId?: number | string | null): boolean {
   return String(chatId).trim() === "7990244560";
 }
 
-export function getMainMenuReplyMarkup(chatId?: number | string) {
+export function getMainMenuReplyMarkup(chatId?: number | string, customSettings?: any) {
+  const isLbEnabled = customSettings?.leaderboardEnabled !== undefined
+    ? customSettings.leaderboardEnabled !== false
+    : (cachedSettings?.leaderboardEnabled !== false);
+
   const keyboard: any[][] = [
     [{ text: "💼 কাজ", style: "success" }],
     [
@@ -598,14 +715,18 @@ export function getMainMenuReplyMarkup(chatId?: number | string) {
     [
       { text: "👥 রেফারেল লিংক", style: "primary" },
       { text: "📞 সাপোর্ট", style: "primary" }
-    ],
-    [
-      { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
     ]
   ];
 
+  if (isLbEnabled) {
+    keyboard.push([
+      { text: "🏆 সেরা কর্মী (লিডারবোর্ড)", style: "primary" }
+    ]);
+  }
+
   if (isBroadcastAdmin(chatId)) {
     keyboard.push([
+      { text: "⚙️ অ্যাডমিন কন্ট্রোল", style: "primary" },
       { text: "📢 ব্রডকাস্ট", style: "danger" }
     ]);
   }
@@ -620,6 +741,18 @@ export function getMainMenuReplyMarkup(chatId?: number | string) {
 export async function handleLeaderboardCommand(bot: TelegramBot, chatId: number, profile?: any) {
   try {
     const settings = await getGlobalSettings();
+    if (settings?.leaderboardEnabled === false) {
+      await bot.sendMessage(
+        chatId, 
+        `⚠️ <b>বর্তমানে লিডারবোর্ড সিস্টেমটি সাময়িকভাবে বন্ধ আছে।</b>\n\nপরবর্তী আপডেটের জন্য অনুগ্রহ করে আমাদের টেলিগ্রাম চ্যানেলে লক্ষ্য রাখুন। ধন্যবাদ!`, 
+        {
+          parse_mode: "HTML",
+          reply_markup: getMainMenuReplyMarkup(chatId, settings) as any
+        }
+      );
+      return;
+    }
+
     let round: LeaderboardRound | undefined = settings?.lastLeaderboardRound;
 
     const activePasswords = [
@@ -1069,6 +1202,1043 @@ async function executeAdminBroadcast(bot: TelegramBot, chatId: number, target: '
   });
 }
 
+// ==========================================
+// 👑 TELEGRAM ADMIN CONTROL PANEL (ID: 7990244560 ONLY)
+// ==========================================
+
+function escapeBotHtml(unsafe: string = ""): string {
+  return String(unsafe)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export async function updateGlobalSettingsFromBot(updates: Record<string, any>): Promise<boolean> {
+  try {
+    const settingsRef = doc(db, "settings", "global");
+    await setDoc(settingsRef, updates, { merge: true });
+
+    // Also update work_backup if any work/rate setting is in updates
+    const workKeys = [
+      'facebookWorkActive', 'facebookRatePerId', 'facebookPassword', 'facebookFirstName', 'facebookLastName',
+      'fbHotmailWorkActive', 'fbHotmailRatePerId', 'fbHotmailPassword', 'fbHotmailFirstName', 'fbHotmailLastName',
+      'fbHotmail0fdWorkActive', 'fbHotmail0fdRatePerId', 'fbHotmail0fdPassword', 'fbHotmail0fdFirstName', 'fbHotmail0fdLastName',
+      'instagramWorkActive', 'ratePerId', 'dailyPassword', 'usernamePrefix'
+    ];
+    if (Object.keys(updates).some(k => workKeys.includes(k))) {
+      try {
+        const wbRef = doc(db, "settings", "work_backup");
+        await setDoc(wbRef, updates, { merge: true });
+      } catch (wbErr) {}
+    }
+
+    // Invalidate local memory cache so next read is immediate
+    invalidateSettingsCache();
+    if (cachedSettings) {
+      cachedSettings = { ...cachedSettings, ...updates };
+      cachedSettingsTime = Date.now();
+    }
+    return true;
+  } catch (err) {
+    console.error("Failed to update global settings from bot:", err);
+    return false;
+  }
+}
+
+export async function showAdminControlPanel(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  if (!isBroadcastAdmin(chatId)) {
+    await bot.sendMessage(chatId, "❌ দুঃখিত, এই প্যানেলের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+    return;
+  }
+
+  const settings = await getGlobalSettings(true);
+
+  const fbWork = settings?.facebookWorkActive !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const fbRate = settings?.facebookRatePerId || 45;
+  const fbPwd = settings?.facebookPassword ? `<code>${escapeBotHtml(settings.facebookPassword)}</code>` : "<i>সেট নেই</i>";
+
+  const fbHotmailWork = settings?.fbHotmailWorkActive !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const fbHotmailRate = settings?.fbHotmailRatePerId || 50;
+  const fbHotmailPwd = settings?.fbHotmailPassword ? `<code>${escapeBotHtml(settings.fbHotmailPassword)}</code>` : "<i>সেট নেই</i>";
+
+  const fb0fdWork = settings?.fbHotmail0fdWorkActive === true ? "🟢 চালু" : "🔴 বন্ধ";
+  const fb0fdRate = settings?.fbHotmail0fdRatePerId || 40;
+  const fb0fdPwd = settings?.fbHotmail0fdPassword ? `<code>${escapeBotHtml(settings.fbHotmail0fdPassword)}</code>` : "<i>সেট নেই</i>";
+
+  const instaWork = settings?.instagramWorkActive !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const instaRate = settings?.ratePerId || 45;
+  const instaPwd = settings?.dailyPassword ? `<code>${escapeBotHtml(settings.dailyPassword)}</code>` : "<i>সেট নেই</i>";
+
+  const wdEnabled = settings?.withdrawalsEnabled !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const minWd = settings?.minWithdraw || 50;
+  const bkash = settings?.bkashEnabled !== false ? "🟢" : "🔴";
+  const nagad = settings?.nagadEnabled === true ? "🟢" : "🔴";
+  const rocket = settings?.rocketEnabled === true ? "🟢" : "🔴";
+
+  const lbEnabled = settings?.leaderboardEnabled !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const refEnabled = settings?.referralSystemEnabled !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const refBonus = settings?.referralBonusAmount || 10;
+  const refMinWd = settings?.minReferralWithdrawLimit || 500;
+
+  const panelText = 
+    `👑 <b>অ্যাডমিন কন্ট্রোল ড্যাশবোর্ড (Master Admin Panel)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>শুধুমাত্র প্রধান অ্যাডমিন (ID: <code>${chatId}</code>)-এর জন্য নির্ধারিত।</i>\n\n` +
+    `💼 <b>কাজের বর্তমান অবস্থা ও রেট:</b>\n` +
+    `• <b>Facebook Cookie:</b> ${fbWork} | রেট: ৳${fbRate} | পাস: ${fbPwd}\n` +
+    `• <b>FB Hotmail 30+fd:</b> ${fbHotmailWork} | রেট: ৳${fbHotmailRate} | পাস: ${fbHotmailPwd}\n` +
+    `• <b>FB Hotmail 0fd:</b> ${fb0fdWork} | রেট: ৳${fb0fdRate} | পাস: ${fb0fdPwd}\n` +
+    `• <b>Instagram:</b> ${instaWork} | রেট: ৳${instaRate} | পাস: ${instaPwd}\n\n` +
+    `🏦 <b>উইথড্রয়াল ও পেমেন্ট:</b>\n` +
+    `• <b>উইথড্রয়াল:</b> ${wdEnabled} (মিনিমাম: ৳${minWd})\n` +
+    `• <b>মেথড:</b> বিকাশ ${bkash} | নগদ ${nagad} | রকেট ${rocket}\n\n` +
+    `⚙️ <b>অন্যান্য ফিচার:</b>\n` +
+    `• <b>লিডারবোর্ড:</b> ${lbEnabled}\n` +
+    `• <b>রেফারেল:</b> ${refEnabled} (বোনাস: ৳${refBonus}, মিনিমাম: ৳${refMinWd})\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `👇 যে সেটিংটি পরিবর্তন করতে চান নিচের বাটনে চাপ দিন:`;
+
+  const inlineKeyboard = [
+    [
+      { text: "💼 কাজের অন/অফ", callback_data: "adm_menu_work" },
+      { text: "💰 কাজের রেট", callback_data: "adm_menu_rate" }
+    ],
+    [
+      { text: "🔑 কাজের পাসওয়ার্ড", callback_data: "adm_menu_pwd" },
+      { text: "💸 উইথড্রয়াল সেটিংস", callback_data: "adm_menu_wd" }
+    ],
+    [
+      { text: `🏆 লিডারবোর্ড (${settings?.leaderboardEnabled !== false ? "চালু" : "বন্ধ"})`, callback_data: "adm_toggle_lb" },
+      { text: "👥 রেফারেল সেটিংস", callback_data: "adm_menu_ref" }
+    ],
+    [
+      { text: "📊 লাইভ ড্যাশবোর্ড রিপোর্ট", callback_data: "adm_live_stats" }
+    ],
+    [
+      { text: "🔄 রিফ্রেশ", callback_data: "adm_menu_main" },
+      { text: "❌ প্যানেল বন্ধ", callback_data: "adm_close" }
+    ]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(panelText, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, panelText, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminWorkTogglesMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const settings = await getGlobalSettings(true);
+  const fb = settings?.facebookWorkActive !== false;
+  const fbH = settings?.fbHotmailWorkActive !== false;
+  const fb0 = settings?.fbHotmail0fdWorkActive === true;
+  const ig = settings?.instagramWorkActive !== false;
+
+  const text = 
+    `💼 <b>কাজের সচল/বন্ধ অবস্থা নির্ধারণ (Work Status)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `নিচের বাটনে ক্লিক করে যেকোনো কাজ তাৎক্ষণিক চালু বা বন্ধ করুন:\n\n` +
+    `• Facebook Cookie: ${fb ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• FB Hotmail 30+fd: ${fbH ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• FB Hotmail 0fd: ${fb0 ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• Instagram: ${ig ? "🟢 চালু" : "🔴 বন্ধ"}`;
+
+  const inlineKeyboard = [
+    [{ text: `Facebook Cookie: ${fb ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fb" }],
+    [{ text: `FB Hotmail 30+fd: ${fbH ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fbh" }],
+    [{ text: `FB Hotmail 0fd: ${fb0 ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fb0" }],
+    [{ text: `Instagram: ${ig ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_ig" }],
+    [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminRatesMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const settings = await getGlobalSettings(true);
+  const fbRate = settings?.facebookRatePerId || 45;
+  const fbHRate = settings?.fbHotmailRatePerId || 50;
+  const fb0Rate = settings?.fbHotmail0fdRatePerId || 40;
+  const igRate = settings?.ratePerId || 45;
+
+  const text =
+    `💰 <b>কাজের রেট পরিবর্তন (Change Work Rates)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `যে কাজের রেট পরিবর্তন করতে চান সেই বাটনে চাপ দিন:\n\n` +
+    `• FB Cookie রেট: <b>৳${fbRate} Taka</b>\n` +
+    `• FB Hotmail 30+fd রেট: <b>৳${fbHRate} Taka</b>\n` +
+    `• FB Hotmail 0fd রেট: <b>৳${fb0Rate} Taka</b>\n` +
+    `• Instagram রেট: <b>৳${igRate} Taka</b>`;
+
+  const inlineKeyboard = [
+    [{ text: `✏️ FB Cookie রেট (বর্তমান: ৳${fbRate})`, callback_data: "adm_rate_fb" }],
+    [{ text: `✏️ FB Hotmail 30+fd রেট (বর্তমান: ৳${fbHRate})`, callback_data: "adm_rate_fbh" }],
+    [{ text: `✏️ FB Hotmail 0fd রেট (বর্তমান: ৳${fb0Rate})`, callback_data: "adm_rate_fb0" }],
+    [{ text: `✏️ Instagram রেট (বর্তমান: ৳${igRate})`, callback_data: "adm_rate_ig" }],
+    [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminPasswordsMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const settings = await getGlobalSettings(true);
+  const fbPwd = settings?.facebookPassword || "সেট নেই";
+  const fbHPwd = settings?.fbHotmailPassword || "সেট নেই";
+  const fb0Pwd = settings?.fbHotmail0fdPassword || "সেট নেই";
+  const igPwd = settings?.dailyPassword || "সেট নেই";
+
+  const text =
+    `🔑 <b>কাজের পাসওয়ার্ড পরিবর্তন (Change Passwords)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `যে কাজের পাসওয়ার্ড পরিবর্তন করতে চান সেই বাটনে চাপ দিন:\n\n` +
+    `• FB Cookie পাসওয়ার্ড: <code>${escapeBotHtml(fbPwd)}</code>\n` +
+    `• FB Hotmail 30+fd পাসওয়ার্ড: <code>${escapeBotHtml(fbHPwd)}</code>\n` +
+    `• FB Hotmail 0fd পাসওয়ার্ড: <code>${escapeBotHtml(fb0Pwd)}</code>\n` +
+    `• Instagram পাসওয়ার্ড: <code>${escapeBotHtml(igPwd)}</code>`;
+
+  const inlineKeyboard = [
+    [{ text: "✏️ FB Cookie পাসওয়ার্ড পরিবর্তন", callback_data: "adm_pwd_fb" }],
+    [{ text: "✏️ FB Hotmail 30+fd পাসওয়ার্ড পরিবর্তন", callback_data: "adm_pwd_fbh" }],
+    [{ text: "✏️ FB Hotmail 0fd পাসওয়ার্ড পরিবর্তন", callback_data: "adm_pwd_fb0" }],
+    [{ text: "✏️ Instagram পাসওয়ার্ড পরিবর্তন", callback_data: "adm_pwd_ig" }],
+    [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminWithdrawMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const settings = await getGlobalSettings(true);
+  const wd = settings?.withdrawalsEnabled !== false;
+  const bk = settings?.bkashEnabled !== false;
+  const ng = settings?.nagadEnabled === true;
+  const rk = settings?.rocketEnabled === true;
+  const minWd = settings?.minWithdraw || 50;
+
+  const text =
+    `💸 <b>উইথড্রয়াল ও পেমেন্ট সেটিংস (Withdrawal Settings)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• টাকা তোলা (মাস্টার সুইচ): ${wd ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• বিকাশ (bKash): ${bk ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• নগদ (Nagad): ${ng ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• রকেট (Rocket): ${rk ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• সর্বনিম্ন উত্তোলন লিমিট: <b>৳${minWd} Taka</b>`;
+
+  const inlineKeyboard = [
+    [{ text: `টাকা তোলা: ${wd ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_wd_master" }],
+    [
+      { text: `বিকাশ: ${bk ? "🟢 চালু" : "🔴 বন্ধ"}`, callback_data: "adm_tog_bkash" },
+      { text: `নগদ: ${ng ? "🟢 চালু" : "🔴 বন্ধ"}`, callback_data: "adm_tog_nagad" },
+      { text: `রকেট: ${rk ? "🟢 চালু" : "🔴 বন্ধ"}`, callback_data: "adm_tog_rocket" }
+    ],
+    [{ text: `✏️ সর্বনিম্ন উত্তোলন সীমা পরিবর্তন (বর্তমান: ৳${minWd})`, callback_data: "adm_set_min_wd" }],
+    [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminReferralMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const settings = await getGlobalSettings(true);
+  const refActive = settings?.referralSystemEnabled !== false;
+  const bonus = settings?.referralBonusAmount || 10;
+  const minWd = settings?.minReferralWithdrawLimit || 500;
+
+  const text =
+    `👥 <b>রেফারেল সিস্টেম সেটিংস (Referral Settings)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• রেফারেল সিস্টেম: ${refActive ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• প্রতি সফল রেফারে বোনাস: <b>৳${bonus} Taka</b>\n` +
+    `• রেফারেল ব্যালেন্স তোলার মিনিমাম লিমিট: <b>৳${minWd} Taka</b>`;
+
+  const inlineKeyboard = [
+    [{ text: `রেফারেল সিস্টেম: ${refActive ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_ref_sys" }],
+    [{ text: `✏️ প্রতি রেফার বোনাস পরিবর্তন (৳${bonus})`, callback_data: "adm_set_ref_bonus" }],
+    [{ text: `✏️ রেফার মিনিমাম উইথড্র লিমিট (৳${minWd})`, callback_data: "adm_set_ref_min" }],
+    [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminLiveStats(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayIso = todayStart.toISOString();
+
+    const [profilesSnap, subsSnap, withdrawsSnap] = await Promise.all([
+      getDocs(collection(db, "profiles")),
+      getDocs(collection(db, "submissions")),
+      getDocs(collection(db, "withdrawals"))
+    ]);
+
+    const totalUsers = profilesSnap.size;
+
+    let totalSubsToday = 0;
+    let pendingSubs = 0;
+    let approvedSubsToday = 0;
+    let fbToday = 0;
+    let fbhToday = 0;
+    let fb0Today = 0;
+    let igToday = 0;
+
+    subsSnap.forEach(d => {
+      const s = d.data();
+      const isToday = s.createdAt && s.createdAt >= todayIso;
+      if (s.status === 'pending') pendingSubs++;
+      if (isToday) {
+        totalSubsToday++;
+        if (s.status === 'approved') approvedSubsToday++;
+        if (s.category === 'facebook') fbToday++;
+        else if (s.category === 'fb_hotmail') fbhToday++;
+        else if (s.category === 'fb_hotmail_0fd') fb0Today++;
+        else igToday++;
+      }
+    });
+
+    let pendingWdCount = 0;
+    let pendingWdAmount = 0;
+    let approvedWdAmount = 0;
+
+    withdrawsSnap.forEach(d => {
+      const w = d.data();
+      if (w.status === 'pending') {
+        pendingWdCount++;
+        pendingWdAmount += (Number(w.amount) || 0);
+      } else if (w.status === 'approved') {
+        approvedWdAmount += (Number(w.amount) || 0);
+      }
+    });
+
+    const statsText =
+      `📊 <b>লাইভ ড্যাশবোর্ড রিপোর্ট (Live Stats Report)</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👥 <b>মোট কর্মী / ইউজার:</b> <b>${totalUsers}</b> জন\n\n` +
+      `📋 <b>আইডি সাবমিশন পরিসংখ্যান (আজকে):</b>\n` +
+      `• মোট জমা (আজকে): <b>${totalSubsToday}</b> টি\n` +
+      `  - 📸 Instagram: <b>${igToday}</b> টি\n` +
+      `  - 👥 FB Cookie: <b>${fbToday}</b> টি\n` +
+      `  - 📧 FB Hotmail 30+fd: <b>${fbhToday}</b> টি\n` +
+      `  - 🔥 FB Hotmail 0fd: <b>${fb0Today}</b> টি\n` +
+      `• অনুমোদিত (আজকে): <b>${approvedSubsToday}</b> টি\n` +
+      `• অপেক্ষমান (Pending মোট): ⏳ <b>${pendingSubs}</b> টি\n\n` +
+      `🏦 <b>উইথড্রয়াল পরিসংখ্যান:</b>\n` +
+      `• অপেক্ষমান উইথড্র: ⏳ <b>${pendingWdCount}</b> টি (মোট ৳<b>${pendingWdAmount}</b> Taka)\n` +
+      `• সর্বমোট পেইড সম্পন্ন: <b>৳${approvedWdAmount}</b> Taka\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⏰ রিপোর্ট জেনারেট: ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Dhaka' })}`;
+
+    const inlineKeyboard = [
+      [
+        { text: "🔄 রিফ্রেশ করুন", callback_data: "adm_live_stats" },
+        { text: "« মূল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }
+      ]
+    ];
+
+    if (messageIdToEdit) {
+      try {
+        await bot.editMessageText(statsText, {
+          chat_id: chatId,
+          message_id: messageIdToEdit,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: inlineKeyboard }
+        });
+        return;
+      } catch (e) {}
+    }
+
+    await bot.sendMessage(chatId, statsText, {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: inlineKeyboard }
+    });
+  } catch (err) {
+    console.error("Error generating admin live stats:", err);
+    await bot.sendMessage(chatId, "❌ রিপোর্ট আনতে সমস্যা হয়েছে, অনুগ্রহ করে কিছুক্ষণ পর চেষ্টা করুন।");
+  }
+}
+
+async function handleAdminApproveSubmission(bot: TelegramBot, chatId: number, subId: string, callbackQuery: any) {
+  try {
+    const subRef = doc(db, "submissions", subId);
+    const subSnap = await getDoc(subRef);
+    if (!subSnap.exists()) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "⚠️ সাবমিশনটি পাওয়া যায়নি!", show_alert: true });
+      return;
+    }
+    const subData = subSnap.data() as any;
+    if (subData.status === "approved") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "ইতিমধ্যে অনুমোদিত হয়েছে!", show_alert: true });
+      return;
+    }
+    if (subData.status === "rejected") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "এই কাজটি পূর্বে বাতিল করা হয়েছিল!", show_alert: true });
+      return;
+    }
+
+    // Mark approved in Firestore
+    await updateDoc(subRef, { status: "approved", approvedAt: new Date().toISOString() });
+
+    // Preserve / update user earnings
+    const settings = await getGlobalSettings();
+    const defaultRate = subData.category === "fb_hotmail"
+      ? (settings.fbHotmailRatePerId || 50)
+      : (subData.category === "fb_hotmail_0fd"
+        ? (settings.fbHotmail0fdRatePerId || 40)
+        : (subData.category === "facebook"
+          ? (settings.facebookRatePerId || 45)
+          : (settings.ratePerId || 45)));
+    const rateToCredit = (subData.rate !== undefined && subData.rate > 0) ? subData.rate : defaultRate;
+
+    if (subData.submittedBy) {
+      await preserveUserEarnings(subData.submittedBy, rateToCredit);
+    }
+
+    // Invalidate profile cache
+    if (subData.telegramChatId) {
+      profileInMemoryCache.delete(String(subData.telegramChatId));
+      membershipCache.delete(Number(subData.telegramChatId));
+    }
+
+    // Notify worker on telegram if they have chat ID
+    if (subData.telegramChatId) {
+      try {
+        const catMap: Record<string, string> = {
+          'instagram': 'Instagram',
+          'facebook': 'Facebook Cookie',
+          'fb_hotmail': 'FB Hotmail 30+fd',
+          'fb_hotmail_0fd': 'FB Hotmail 0fd'
+        };
+        const catName = catMap[subData.category] || 'আইডি';
+        await bot.sendMessage(
+          Number(subData.telegramChatId),
+          `🎉 <b>অভিনন্দন! আপনার জমা দেওয়া কাজ অনুমোদিত হয়েছে!</b>\n\n` +
+          `🏷️ <b>কাজের ধরন:</b> ${catName}\n` +
+          `💵 <b>যোগকৃত ব্যালেন্স:</b> ৳<b>${rateToCredit}</b> Taka\n` +
+          `📅 <b>অনুমোদনের সময়:</b> ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Dhaka' })}\n\n` +
+          `ব্যালেন্স চেক করতে মেইন মেনু থেকে <b>💰 ব্যালেন্স চেক</b> বাটনে চাপ দিন।`,
+          { parse_mode: "HTML" }
+        );
+      } catch (notifyErr) {}
+    }
+
+    // Update the admin message to reflect approval
+    const originalText = callbackQuery.message?.text || "";
+    const updatedAdminText = originalText + `\n\n━━━━━━━━━━━━━━━━━━━━\n✅ <b>এডমিন কর্তৃক অনুমোদিত (Approved)</b>\n📅 ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Dhaka' })}`;
+    try {
+      await bot.editMessageText(updatedAdminText, {
+        chat_id: chatId,
+        message_id: callbackQuery.message?.message_id,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [] }
+      });
+    } catch (e) {}
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "✅ কাজ সফলভাবে অনুমোদন করা হয়েছে!" });
+  } catch (err) {
+    console.error("Error in handleAdminApproveSubmission:", err);
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ কাজ অনুমোদনে ত্রুটি হয়েছে!", show_alert: true });
+  }
+}
+
+async function handleAdminRejectSubmission(bot: TelegramBot, chatId: number, subId: string, callbackQuery: any) {
+  try {
+    const subRef = doc(db, "submissions", subId);
+    const subSnap = await getDoc(subRef);
+    if (!subSnap.exists()) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "⚠️ সাবমিশনটি পাওয়া যায়নি!", show_alert: true });
+      return;
+    }
+    const subData = subSnap.data() as any;
+    if (subData.status === "approved") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "এই কাজটি ইতিমধ্যে অনুমোদিত হয়েছিল!", show_alert: true });
+      return;
+    }
+    if (subData.status === "rejected") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "ইতিমধ্যে বাতিল করা হয়েছে!", show_alert: true });
+      return;
+    }
+
+    await updateDoc(subRef, { status: "rejected", rejectedAt: new Date().toISOString() });
+
+    if (subData.telegramChatId) {
+      try {
+        const catMap: Record<string, string> = {
+          'instagram': 'Instagram',
+          'facebook': 'Facebook Cookie',
+          'fb_hotmail': 'FB Hotmail 30+fd',
+          'fb_hotmail_0fd': 'FB Hotmail 0fd'
+        };
+        const catName = catMap[subData.category] || 'আইডি';
+        await bot.sendMessage(
+          Number(subData.telegramChatId),
+          `❌ <b>নোটিশ: আপনার জমা দেওয়া একটি কাজ বাতিল করা হয়েছে।</b>\n\n` +
+          `🏷️ <b>কাজের ধরন:</b> ${catName}\n` +
+          `⚠️ সঠিক তথ্য ও নিয়ম মেনে কাজ সাবমিট না করায় এডমিন এটি বাতিল করেছেন।\n` +
+          `অনুগ্রহ করে নিয়ম মেনে পুনরায় কাজ জমা দিন। ধন্যবাদ!`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {}
+    }
+
+    const originalText = callbackQuery.message?.text || "";
+    const updatedAdminText = originalText + `\n\n━━━━━━━━━━━━━━━━━━━━\n❌ <b>এডমিন কর্তৃক বাতিলকৃত (Rejected)</b>\n📅 ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Dhaka' })}`;
+    try {
+      await bot.editMessageText(updatedAdminText, {
+        chat_id: chatId,
+        message_id: callbackQuery.message?.message_id,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [] }
+      });
+    } catch (e) {}
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ কাজ বাতিল করা হয়েছে।" });
+  } catch (err) {
+    console.error("Error in handleAdminRejectSubmission:", err);
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ বাতিল করতে ত্রুটি হয়েছে!", show_alert: true });
+  }
+}
+
+async function handleAdminApproveWithdrawal(bot: TelegramBot, chatId: number, wdId: string, callbackQuery: any) {
+  try {
+    const wdRef = doc(db, "withdrawals", wdId);
+    const wdSnap = await getDoc(wdRef);
+    if (!wdSnap.exists()) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "⚠️ উত্তোলনের তথ্য পাওয়া যায়নি!", show_alert: true });
+      return;
+    }
+    const wdData = wdSnap.data() as any;
+    if (wdData.status === "approved") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "ইতিমধ্যে পেইড/অনুমোদিত হয়েছে!", show_alert: true });
+      return;
+    }
+    if (wdData.status === "rejected") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "এই উত্তোলনটি পূর্বে বাতিল করা হয়েছিল!", show_alert: true });
+      return;
+    }
+
+    await updateDoc(wdRef, { status: "approved", approvedAt: new Date().toISOString() });
+
+    // Invalidate profile cache
+    if (wdData.telegramChatId) {
+      profileInMemoryCache.delete(String(wdData.telegramChatId));
+      try {
+        await bot.sendMessage(
+          Number(wdData.telegramChatId),
+          `🎉 <b>অভিনন্দন! আপনার টাকা উত্তোলনের পেমেন্ট সম্পন্ন হয়েছে!</b>\n\n` +
+          `💵 <b>পরিমাণ:</b> ৳<b>${wdData.amount}</b> Taka\n` +
+          `🏦 <b>পেমেন্ট মাধ্যম:</b> ${wdData.method}\n` +
+          `📱 <b>অ্যাকাউন্ট নাম্বার:</b> <code>${wdData.number}</code>\n` +
+          `📅 <b>তারিখ ও সময়:</b> ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Dhaka' })}\n\n` +
+          `টাকা আপনার অ্যাকাউন্টে সফলভাবে পাঠিয়ে দেওয়া হয়েছে। ধন্যবাদ আমাদের সাথে কাজ করার জন্য!`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {}
+    }
+
+    const originalText = callbackQuery.message?.text || "";
+    const updatedAdminText = originalText + `\n\n━━━━━━━━━━━━━━━━━━━━\n✅ <b>পেইড ও অনুমোদিত (Paid by Admin)</b>\n📅 ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Dhaka' })}`;
+    try {
+      await bot.editMessageText(updatedAdminText, {
+        chat_id: chatId,
+        message_id: callbackQuery.message?.message_id,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [] }
+      });
+    } catch (e) {}
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "✅ উত্তোলন পেইড ও অনুমোদন সম্পন্ন!" });
+  } catch (err) {
+    console.error("Error in handleAdminApproveWithdrawal:", err);
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ প্রসেস করতে ত্রুটি হয়েছে!", show_alert: true });
+  }
+}
+
+async function handleAdminRejectWithdrawal(bot: TelegramBot, chatId: number, wdId: string, callbackQuery: any) {
+  try {
+    const wdRef = doc(db, "withdrawals", wdId);
+    const wdSnap = await getDoc(wdRef);
+    if (!wdSnap.exists()) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "⚠️ উত্তোলনের তথ্য পাওয়া যায়নি!", show_alert: true });
+      return;
+    }
+    const wdData = wdSnap.data() as any;
+    if (wdData.status === "approved") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "এই উত্তোলনটি ইতিমধ্যে পেইড হয়েছিল!", show_alert: true });
+      return;
+    }
+    if (wdData.status === "rejected") {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "ইতিমধ্যে বাতিল করা হয়েছে!", show_alert: true });
+      return;
+    }
+
+    await updateDoc(wdRef, { status: "rejected", rejectedAt: new Date().toISOString() });
+
+    if (wdData.telegramChatId) {
+      profileInMemoryCache.delete(String(wdData.telegramChatId));
+      try {
+        await bot.sendMessage(
+          Number(wdData.telegramChatId),
+          `❌ <b>নোটিশ: আপনার ৳${wdData.amount} টাকার উত্তোলনের অনুরোধটি বাতিল করা হয়েছে।</b>\n\n` +
+          `প্রয়োজনে আমাদের সাপোর্ট চ্যানেলে যোগাযোগ করুন। ধন্যবাদ!`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {}
+    }
+
+    const originalText = callbackQuery.message?.text || "";
+    const updatedAdminText = originalText + `\n\n━━━━━━━━━━━━━━━━━━━━\n❌ <b>উত্তোলন বাতিলকৃত (Rejected)</b>\n📅 ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Dhaka' })}`;
+    try {
+      await bot.editMessageText(updatedAdminText, {
+        chat_id: chatId,
+        message_id: callbackQuery.message?.message_id,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [] }
+      });
+    } catch (e) {}
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ উত্তোলন বাতিল করা হয়েছে।" });
+  } catch (err) {
+    console.error("Error in handleAdminRejectWithdrawal:", err);
+    await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ বাতিল করতে ত্রুটি হয়েছে!", show_alert: true });
+  }
+}
+
+async function handleAdminControlCallback(bot: TelegramBot, chatId: number, data: string, callbackQuery: any) {
+  if (!isBroadcastAdmin(chatId)) {
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: "❌ পারমিশন নেই", show_alert: true }); } catch {}
+    return;
+  }
+
+  const msgId = callbackQuery.message?.message_id;
+
+  // 1. Navigation
+  if (data === "adm_menu_main") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminControlPanel(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_close") {
+    try {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: "প্যানেল বন্ধ করা হয়েছে" });
+      await bot.deleteMessage(chatId, msgId);
+    } catch {}
+    await bot.sendMessage(chatId, "🔒 <b>অ্যাডমিন কন্ট্রোল প্যানেল বন্ধ করা হয়েছে।</b>", {
+      parse_mode: "HTML",
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+    return;
+  }
+
+  // 2. Work Toggles Menu
+  if (data === "adm_menu_work") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_fb") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.facebookWorkActive === false ? true : false;
+    await updateGlobalSettingsFromBot({ facebookWorkActive: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `Facebook Cookie কাজ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_fbh") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.fbHotmailWorkActive === false ? true : false;
+    await updateGlobalSettingsFromBot({ fbHotmailWorkActive: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `FB Hotmail 30+fd কাজ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_fb0") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.fbHotmail0fdWorkActive === true ? false : true;
+    await updateGlobalSettingsFromBot({ fbHotmail0fdWorkActive: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `FB Hotmail 0fd কাজ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_ig") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.instagramWorkActive === false ? true : false;
+    await updateGlobalSettingsFromBot({ instagramWorkActive: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `Instagram কাজ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  // 3. Work Rates Menu
+  if (data === "adm_menu_rate") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminRatesMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_rate_fb" || data === "adm_rate_fbh" || data === "adm_rate_fb0" || data === "adm_rate_ig") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const configMap: Record<string, { field: string; label: string }> = {
+      adm_rate_fb: { field: "facebookRatePerId", label: "Facebook Cookie রেট" },
+      adm_rate_fbh: { field: "fbHotmailRatePerId", label: "FB Hotmail 30+fd রেট" },
+      adm_rate_fb0: { field: "fbHotmail0fdRatePerId", label: "FB Hotmail 0fd রেট" },
+      adm_rate_ig: { field: "ratePerId", label: "Instagram রেট" }
+    };
+    const target = configMap[data];
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: target.field,
+        label: target.label,
+        type: 'number',
+        menuToReturn: 'adm_menu_rate'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `✏️ <b>${target.label} পরিবর্তন করুন:</b>\n\n` +
+      `অনুগ্রহ করে নতুন রেট শুধুমাত্র সংখ্যায় লিখে পাঠান (যেমন: 45 বা 50):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  // 4. Passwords Menu
+  if (data === "adm_menu_pwd") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminPasswordsMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_pwd_fb" || data === "adm_pwd_fbh" || data === "adm_pwd_fb0" || data === "adm_pwd_ig") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const configMap: Record<string, { field: string; label: string }> = {
+      adm_pwd_fb: { field: "facebookPassword", label: "Facebook Cookie পাসওয়ার্ড" },
+      adm_pwd_fbh: { field: "fbHotmailPassword", label: "FB Hotmail 30+fd পাসওয়ার্ড" },
+      adm_pwd_fb0: { field: "fbHotmail0fdPassword", label: "FB Hotmail 0fd পাসওয়ার্ড" },
+      adm_pwd_ig: { field: "dailyPassword", label: "Instagram পাসওয়ার্ড" }
+    };
+    const target = configMap[data];
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: target.field,
+        label: target.label,
+        type: 'text',
+        menuToReturn: 'adm_menu_pwd'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `🔑 <b>${target.label} পরিবর্তন করুন:</b>\n\n` +
+      `অনুগ্রহ করে নতুন পাসওয়ার্ড লিখে পাঠান:\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  // 5. Withdrawal Menu
+  if (data === "adm_menu_wd") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminWithdrawMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_wd_master") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.withdrawalsEnabled !== false ? false : true;
+    await updateGlobalSettingsFromBot({ withdrawalsEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `টাকা তোলা ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWithdrawMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_bkash") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.bkashEnabled !== false ? false : true;
+    await updateGlobalSettingsFromBot({ bkashEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `বিকাশ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWithdrawMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_nagad") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.nagadEnabled === true ? false : true;
+    await updateGlobalSettingsFromBot({ nagadEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `নগদ ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWithdrawMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_rocket") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.rocketEnabled === true ? false : true;
+    await updateGlobalSettingsFromBot({ rocketEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `রকেট ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminWithdrawMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_set_min_wd") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: "minWithdraw",
+        label: "সর্বনিম্ন উত্তোলন সীমা (Min Withdraw)",
+        type: 'number',
+        menuToReturn: 'adm_menu_wd'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `💸 <b>সর্বনিম্ন উত্তোলন সীমা নির্ধারণ:</b>\n\n` +
+      `ইউজাররা সর্বনিম্ন কত টাকা তুলতে পারবে তা শুধুমাত্র সংখ্যায় লিখে পাঠান (যেমন: 50 বা 100):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  // 6. Leaderboard Toggle
+  if (data === "adm_toggle_lb") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.leaderboardEnabled !== false ? false : true;
+    await updateGlobalSettingsFromBot({ leaderboardEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `লিডারবোর্ড ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminControlPanel(bot, chatId, msgId);
+    return;
+  }
+
+  // 7. Referral Menu
+  if (data === "adm_menu_ref") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminReferralMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_tog_ref_sys") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.referralSystemEnabled !== false ? false : true;
+    await updateGlobalSettingsFromBot({ referralSystemEnabled: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `রেফারেল সিস্টেম ${nextState ? "চালু" : "বন্ধ"} হয়েছে!` }); } catch {}
+    await showAdminReferralMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data === "adm_set_ref_bonus") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: "referralBonusAmount",
+        label: "প্রতি সফল রেফার বোনাস",
+        type: 'number',
+        menuToReturn: 'adm_menu_ref'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `👥 <b>প্রতি রেফার বোনাস নির্ধারণ:</b>\n\n` +
+      `প্রতি সফল রেফারে কত টাকা বোনাস দেওয়া হবে তা সংখ্যায় লিখে পাঠান (যেমন: 10):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  if (data === "adm_set_ref_min") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: "minReferralWithdrawLimit",
+        label: "রেফারেল ব্যালেন্স তোলার মিনিমাম লিমিট",
+        type: 'number',
+        menuToReturn: 'adm_menu_ref'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `👥 <b>রেফারেল মিনিমাম উইথড্র লিমিট নির্ধারণ:</b>\n\n` +
+      `রেফার বোনাস তোলার সর্বনিম্ন লিমিট কত টাকা নির্ধারণ করতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 500):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  // 8. Live Stats
+  if (data === "adm_live_stats") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminLiveStats(bot, chatId, msgId);
+    return;
+  }
+
+  // 9. Submissions Approval / Rejection
+  if (data.startsWith("adm_app_sub_")) {
+    const subId = data.replace("adm_app_sub_", "");
+    await handleAdminApproveSubmission(bot, chatId, subId, callbackQuery);
+    return;
+  }
+
+  if (data.startsWith("adm_rej_sub_")) {
+    const subId = data.replace("adm_rej_sub_", "");
+    await handleAdminRejectSubmission(bot, chatId, subId, callbackQuery);
+    return;
+  }
+
+  // 10. Withdrawals Approval / Rejection
+  if (data.startsWith("adm_app_wd_")) {
+    const wdId = data.replace("adm_app_wd_", "");
+    await handleAdminApproveWithdrawal(bot, chatId, wdId, callbackQuery);
+    return;
+  }
+
+  if (data.startsWith("adm_rej_wd_")) {
+    const wdId = data.replace("adm_rej_wd_", "");
+    await handleAdminRejectWithdrawal(bot, chatId, wdId, callbackQuery);
+    return;
+  }
+}
+
 async function handleAdminInstagramCommand(bot: TelegramBot, chatId: number) {
   const adminChatIdStr = await getAdminChatId();
   const isAuthorized = String(chatId) === adminChatIdStr || chatId === 7990244560;
@@ -1342,6 +2512,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
     await handleAdminStartBroadcast(bot, chatId);
+    return;
+  }
+  if (text === "/admin" || text === "/settings" || text === "/panel" || text === "⚙️ অ্যাডমিন কন্ট্রোল" || text === "অ্যাডমিন কন্ট্রোল" || text === "অ্যাডমিন প্যানেল") {
+    if (!isBroadcastAdmin(chatId)) {
+      await bot.sendMessage(chatId, "❌ দুঃখিত, অ্যাডমিন কন্ট্রোল প্যানেলের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+      return;
+    }
+    await showAdminControlPanel(bot, chatId);
     return;
   }
 
@@ -1659,8 +2837,107 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
   }
 
+  // --- Admin Setting Input Step ---
+  if (state.step === "awaiting_admin_setting_input") {
+    if (!isBroadcastAdmin(chatId)) {
+      userStates.delete(chatId);
+      return;
+    }
+
+    if (text === "❌ বাতিল" || text === "বাতিল" || lowerText === "/cancel" || lowerText === "cancel") {
+      const returnMenu = state.adminSettingInput?.menuToReturn;
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ <b>পরিবর্তন বাতিল করা হয়েছে।</b>", {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      if (returnMenu === 'adm_menu_rate') {
+        await showAdminRatesMenu(bot, chatId);
+      } else if (returnMenu === 'adm_menu_pwd') {
+        await showAdminPasswordsMenu(bot, chatId);
+      } else if (returnMenu === 'adm_menu_wd') {
+        await showAdminWithdrawMenu(bot, chatId);
+      } else if (returnMenu === 'adm_menu_ref') {
+        await showAdminReferralMenu(bot, chatId);
+      } else {
+        await showAdminControlPanel(bot, chatId);
+      }
+      return;
+    }
+
+    const inputData = state.adminSettingInput;
+    if (!inputData) {
+      userStates.delete(chatId);
+      await showAdminControlPanel(bot, chatId);
+      return;
+    }
+
+    if (inputData.type === 'number') {
+      const cleanNum = Number(text.replace(/[^0-9.]/g, ""));
+      if (isNaN(cleanNum) || cleanNum < 0 || text.trim().length === 0) {
+        await bot.sendMessage(chatId, `⚠️ <b>সঠিক সংখ্যা পাওয়া যায়নি!</b>\n\nঅনুগ্রহ করে শুধুমাত্র ধনাত্মক সংখ্যা লিখে পাঠান (যেমন: 45 বা 50):\n\nবাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`, {
+          parse_mode: "HTML"
+        });
+        return;
+      }
+
+      await updateGlobalSettingsFromBot({ [inputData.field]: cleanNum });
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, `✅ <b>সফলভাবে আপডেট করা হয়েছে!</b>\n\n<b>${inputData.label}</b> এর নতুন মান: <b>${cleanNum}</b>`, {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      if (inputData.menuToReturn === 'adm_menu_rate') {
+        await showAdminRatesMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_pwd') {
+        await showAdminPasswordsMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_wd') {
+        await showAdminWithdrawMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_ref') {
+        await showAdminReferralMenu(bot, chatId);
+      } else {
+        await showAdminControlPanel(bot, chatId);
+      }
+      return;
+    } else {
+      const val = text.trim();
+      if (!val) {
+        await bot.sendMessage(chatId, `⚠️ টেক্সট খালি হতে পারে না। অনুগ্রহ করে সঠিক টেক্সট লিখে পাঠান:\n\nবাতিল করতে চাইলে <b>❌ বাতিল</b> লিখুন।`);
+        return;
+      }
+
+      await updateGlobalSettingsFromBot({ [inputData.field]: val });
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, `✅ <b>সফলভাবে আপডেট করা হয়েছে!</b>\n\n<b>${inputData.label}</b> এর নতুন মান: <code>${escapeBotHtml(val)}</code>`, {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      if (inputData.menuToReturn === 'adm_menu_rate') {
+        await showAdminRatesMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_pwd') {
+        await showAdminPasswordsMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_wd') {
+        await showAdminWithdrawMenu(bot, chatId);
+      } else if (inputData.menuToReturn === 'adm_menu_ref') {
+        await showAdminReferralMenu(bot, chatId);
+      } else {
+        await showAdminControlPanel(bot, chatId);
+      }
+      return;
+    }
+  }
+
   // --- 5. Step: Main Menu Actions ---
   if (state.step === "main_menu") {
+    if (text === "⚙️ অ্যাডমিন কন্ট্রোল" || text === "অ্যাডমিন কন্ট্রোল" || text === "/admin" || text === "/settings" || text === "/panel") {
+      if (!isBroadcastAdmin(chatId)) {
+        await bot.sendMessage(chatId, "❌ দুঃখিত, অ্যাডমিন কন্ট্রোল প্যানেলের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+        return;
+      }
+      await showAdminControlPanel(bot, chatId);
+      return;
+    }
+
     if (text === "📢 ব্রডকাস্ট" || text === "📢 ব্রডকাস্ট মেসেজ" || text === "ব্রডকাস্ট") {
       if (!isBroadcastAdmin(chatId)) {
         await bot.sendMessage(chatId, "❌ দুঃখিত, ব্রডকাস্ট ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
@@ -3617,6 +4894,12 @@ async function handleCallbackQuery(bot: TelegramBot, callbackQuery: any) {
     return;
   }
 
+  // Handle Admin Control Callbacks
+  if (data.startsWith("adm_")) {
+    await handleAdminControlCallback(bot, chatId, data, callbackQuery);
+    return;
+  }
+
   // Handle Force Join Verification
   if (data === "verify_join") {
     // Clear cache entry to ensure a fresh live verification check
@@ -3816,42 +5099,7 @@ export async function handleWebhookUpdate(update: any) {
 
 export async function syncTelegramBot(isFromWebhook = false) {
   try {
-    let settings: any = null;
-
-    // Fast fetch settings via REST API first to prevent cold-start delay on Vercel
-    try {
-      const projectId = "mahmudul-instagram-bazar";
-      const databaseId = "ai-studio-accountmanager-ec6eda59-6fd3-4a88-b03d-16ce0e0e9a3c";
-      const apiKey = "AIzaSyBEO8S2XRSMTxwcMU2JyiIr-O7ddrHNb9Y";
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/settings/global?key=${apiKey}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.fields) {
-          settings = {
-            telegramBotToken: data.fields.telegramBotToken?.stringValue || "",
-            webhookUrl: data.fields.webhookUrl?.stringValue || "",
-            telegramChatId: data.fields.telegramChatId?.stringValue || "",
-            ratePerId: data.fields.ratePerId?.doubleValue !== undefined 
-              ? parseFloat(data.fields.ratePerId.doubleValue) 
-              : (data.fields.ratePerId?.integerValue !== undefined ? parseFloat(data.fields.ratePerId.integerValue) : 45),
-            facebookRatePerId: data.fields.facebookRatePerId?.doubleValue !== undefined 
-              ? parseFloat(data.fields.facebookRatePerId.doubleValue) 
-              : (data.fields.facebookRatePerId?.integerValue !== undefined ? parseFloat(data.fields.facebookRatePerId.integerValue) : 45),
-            fbHotmailRatePerId: data.fields.fbHotmailRatePerId?.doubleValue !== undefined 
-              ? parseFloat(data.fields.fbHotmailRatePerId.doubleValue) 
-              : (data.fields.fbHotmailRatePerId?.integerValue !== undefined ? parseFloat(data.fields.fbHotmailRatePerId.integerValue) : 50),
-          };
-        }
-      }
-    } catch (e: any) {
-      console.warn("Notice: Fast REST fetch settings error:", e?.message || e);
-    }
-
-    if (!settings) {
-      const settings = await getGlobalSettings();
-    }
-
+    const settings = await getGlobalSettings(true);
     if (!settings) return;
 
     const token = settings.telegramBotToken ? String(settings.telegramBotToken).trim() : null;

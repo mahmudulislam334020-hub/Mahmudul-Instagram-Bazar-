@@ -266,6 +266,36 @@ export default function AdminBot({
               </div>
             </div>
 
+          {/* Cloud Auto-Backup Protection Indicator */}
+          <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <div>
+                <p className="font-bold text-emerald-300">🔐 ক্লাউড ব্যাকআপ সুরক্ষা (Permanent Cloud Backup): সক্রিয়</p>
+                <p className="text-[10px] text-emerald-400/80">বট টোকেন ও কনফিগারেশন সুরক্ষিত ব্যাকআপে সংরক্ষিত। নেটওয়ার্ক সমস্যা বা পেজ রিলোডেও এটি মুছে যাবে না।</p>
+              </div>
+            </div>
+            {(!settings.telegramBotToken || !settings.telegramBotToken.trim()) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const tokenBackup = localStorage.getItem("permanent_bot_token_backup") || "";
+                  const chatBackup = localStorage.getItem("permanent_chat_id_backup") || "";
+                  if (tokenBackup) {
+                    setAppSettings(prev => ({
+                      ...prev,
+                      telegramBotToken: tokenBackup,
+                      telegramChatId: chatBackup || prev.telegramChatId
+                    }));
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-[10px] shrink-0"
+              >
+                রিস্টোর 🔄
+              </button>
+            )}
+          </div>
+
           {/* Telegram token */}
           <div>
             <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Telegram Bot Token</label>

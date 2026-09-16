@@ -54,7 +54,14 @@ interface BotState {
     | 'awaiting_fb_hotmail_0fd_complete'
     | 'awaiting_admin_broadcast_message'
     | 'awaiting_admin_broadcast_confirm'
-    | 'awaiting_admin_setting_input';
+    | 'awaiting_admin_setting_input'
+    | 'awaiting_admin_export_password'
+    | 'awaiting_admin_export_filename';
+  adminExport?: {
+    category?: "facebook" | "fb_hotmail" | "fb_hotmail_0fd" | "instagram" | "all";
+    status?: "pending" | "all";
+    passwordFilter?: string;
+  };
   adminSettingInput?: {
     field: string;
     label: string;
@@ -727,6 +734,9 @@ export function getMainMenuReplyMarkup(chatId?: number | string, customSettings?
   if (isBroadcastAdmin(chatId)) {
     keyboard.push([
       { text: "⚙️ অ্যাডমিন কন্ট্রোল", style: "primary" },
+      { text: "📥 আইডি ডাউনলোড", style: "success" }
+    ]);
+    keyboard.push([
       { text: "📢 ব্রডকাস্ট", style: "danger" }
     ]);
   }
@@ -1314,6 +1324,9 @@ export async function showAdminControlPanel(bot: TelegramBot, chatId: number, me
       { text: "👥 রেফারেল সেটিংস", callback_data: "adm_menu_ref" }
     ],
     [
+      { text: "📥 আইডি ডাউনলোড (Excel Export)", callback_data: "adm_menu_exp" }
+    ],
+    [
       { text: "📊 লাইভ ড্যাশবোর্ড রিপোর্ট", callback_data: "adm_live_stats" }
     ],
     [
@@ -1644,6 +1657,403 @@ async function showAdminLiveStats(bot: TelegramBot, chatId: number, messageIdToE
   } catch (err) {
     console.error("Error generating admin live stats:", err);
     await bot.sendMessage(chatId, "❌ রিপোর্ট আনতে সমস্যা হয়েছে, অনুগ্রহ করে কিছুক্ষণ পর চেষ্টা করুন।");
+  }
+}
+
+const EXPORT_CAT_NAMES: Record<string, string> = {
+  facebook: "👥 Facebook Cookie",
+  fb_hotmail: "📧 FB Hotmail 30+fd",
+  fb_hotmail_0fd: "🔥 FB Hotmail 0fd",
+  instagram: "📸 Instagram",
+  all: "📦 সব ক্যাটেগরি একসাথে"
+};
+
+async function showAdminExportCategoryMenu(bot: TelegramBot, chatId: number, messageIdToEdit?: number) {
+  const text =
+    `📥 <b>আইডি ডাউনলোড ও এক্সপোর্ট (Export Submissions to Excel)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `আপনি যে ক্যাটেগরির আইডি এক্সেল ফাইলে ডাউনলোড করতে চান তা নির্বাচন করুন:\n\n` +
+    `• <b>Facebook Cookie:</b> কুকি ভিত্তিক ফেসবুক আইডি\n` +
+    `• <b>FB Hotmail 30+fd:</b> ৩০+ ফ্রেন্ড সহ হটমেইল আইডি\n` +
+    `• <b>FB Hotmail 0fd:</b> ০ ফ্রেন্ড হটমেইল আইডি\n` +
+    `• <b>Instagram:</b> ইনস্টাগ্রাম আইডি\n` +
+    `• <b>সব ক্যাটেগরি:</b> সব কাজের আইডি একসাথে`;
+
+  const inlineKeyboard = [
+    [
+      { text: "👥 Facebook Cookie", callback_data: "adm_exp_cat_facebook" },
+      { text: "📧 FB Hotmail 30+fd", callback_data: "adm_exp_cat_fb_hotmail" }
+    ],
+    [
+      { text: "🔥 FB Hotmail 0fd", callback_data: "adm_exp_cat_fb_hotmail_0fd" },
+      { text: "📸 Instagram", callback_data: "adm_exp_cat_instagram" }
+    ],
+    [
+      { text: "📦 সব ক্যাটেগরি একসাথে", callback_data: "adm_exp_cat_all" }
+    ],
+    [
+      { text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }
+    ]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminExportStatusMenu(bot: TelegramBot, chatId: number, category: string, messageIdToEdit?: number) {
+  const catLabel = EXPORT_CAT_NAMES[category] || category;
+  const text =
+    `📥 <b>আইডি ডাউনলোড: স্ট্যাটাস ফিল্টার</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `💼 ক্যাটেগরি: <b>${catLabel}</b>\n\n` +
+    `আপনি কোন ধরনের আইডি ডাউনলোড করতে চান নির্বাচন করুন:\n\n` +
+    `• <b>শুধুমাত্র পেন্ডিং (Pending):</b> যে আইডিগুলো এখনও অনুমোদিত বা বাতিল করা হয়নি (বায়ারকে চেকের জন্য দেওয়ার উপযুক্ত)।\n` +
+    `• <b>সব স্ট্যাটাস (All):</b> পেন্ডিং, অনুমোদিত ও বাতিল সব আইডি একসাথে।`;
+
+  const inlineKeyboard = [
+    [
+      { text: "🟡 শুধুমাত্র পেন্ডিং (Pending) আইডি", callback_data: "adm_exp_stat_pending" }
+    ],
+    [
+      { text: "🌐 সব স্ট্যাটাস (Pending/Approved/Rejected)", callback_data: "adm_exp_stat_all" }
+    ],
+    [
+      { text: "« ক্যাটেগরি নির্বাচন মেনুতে ফিরুন", callback_data: "adm_menu_exp" }
+    ]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function showAdminExportPasswordMenu(bot: TelegramBot, chatId: number, exportData: any, messageIdToEdit?: number) {
+  const catLabel = EXPORT_CAT_NAMES[exportData.category || "all"] || exportData.category;
+  const statLabel = exportData.status === "pending" ? "শুধুমাত্র পেন্ডিং (Pending)" : "সব স্ট্যাটাস";
+
+  const settings = await getGlobalSettings(true);
+  let activePwd = "";
+  if (exportData.category === "facebook") activePwd = settings?.facebookPassword || "";
+  else if (exportData.category === "fb_hotmail") activePwd = settings?.fbHotmailPassword || "";
+  else if (exportData.category === "fb_hotmail_0fd") activePwd = settings?.fbHotmail0fdPassword || "";
+  else if (exportData.category === "instagram") activePwd = settings?.dailyPassword || "";
+
+  const text =
+    `🔑 <b>আইডি ডাউনলোড: পাসওয়ার্ড ফিল্টার</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `💼 ক্যাটেগরি: <b>${catLabel}</b>\n` +
+    `📌 স্ট্যাটাস: <b>${statLabel}</b>\n\n` +
+    `আপনি কি কোনো নির্দিষ্ট পাসওয়ার্ডের আইডি আলাদা করতে চান?\n\n` +
+    `• <b>সব পাসওয়ার্ড:</b> যেকোনো পাসওয়ার্ডে সাবমিট হওয়া সব আইডি আসবে।\n` +
+    (activePwd ? `• <b>বর্তমান পাসওয়ার্ড:</b> বর্তমানে চালু থাকা <code>${escapeBotHtml(activePwd)}</code> পাসওয়ার্ডের আইডি আসবে।\n` : "") +
+    `• <b>অন্য পাসওয়ার্ড লিখুন:</b> আগের দিনের কোনো নির্দিষ্ট পাসওয়ার্ড লিখে ফিল্টার করতে পারবেন।`;
+
+  const inlineKeyboard: any[][] = [
+    [
+      { text: "🔓 সব পাসওয়ার্ড (কোনো ফিল্টার ছাড়া)", callback_data: "adm_exp_pwd_all" }
+    ]
+  ];
+
+  if (activePwd) {
+    inlineKeyboard.push([
+      { text: `🔑 বর্তমান পাসওয়ার্ড (${activePwd})`, callback_data: "adm_exp_pwd_active" }
+    ]);
+  }
+
+  inlineKeyboard.push([
+    { text: "✏️ অন্য পাসওয়ার্ড লিখে ফিল্টার করুন", callback_data: "adm_exp_pwd_custom" }
+  ]);
+
+  inlineKeyboard.push([
+    { text: "« স্ট্যাটাস নির্বাচনে ফিরুন", callback_data: "adm_exp_back_stat" }
+  ]);
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function promptAdminExportFileName(bot: TelegramBot, chatId: number, exportData: any, messageIdToEdit?: number) {
+  const catLabel = EXPORT_CAT_NAMES[exportData.category || "all"] || exportData.category;
+  const statLabel = exportData.status === "pending" ? "শুধুমাত্র পেন্ডিং (Pending)" : "সব স্ট্যাটাস";
+  const pwdLabel = exportData.passwordFilter ? `<code>${escapeBotHtml(exportData.passwordFilter)}</code>` : "সব পাসওয়ার্ড";
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const defaultFileName = `${exportData.category || 'all'}_${exportData.status || 'pending'}_${dateStr}.xlsx`;
+
+  userStates.set(chatId, {
+    step: "awaiting_admin_export_filename",
+    adminExport: exportData
+  });
+
+  const text =
+    `📝 <b>ফাইলের নাম নির্ধারণ করুন (Excel File Name)</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `💼 ক্যাটেগরি: <b>${catLabel}</b>\n` +
+    `📌 স্ট্যাটাস: <b>${statLabel}</b>\n` +
+    `🔑 পাসওয়ার্ড: <b>${pwdLabel}</b>\n\n` +
+    `✍️ আপনি নিজের ইচ্ছামতো ফাইলের নাম লিখে মেসেজ পাঠান (যেমন: <code>Buyer_FB_16Sep</code> বা <code>Hotmail_Order_1</code>)।\n\n` +
+    `অথবা স্বয়ংক্রিয় ডিফল্ট নাম (<code>${defaultFileName}</code>) ব্যবহার করতে নিচের বাটনে চাপ দিন:`;
+
+  const inlineKeyboard = [
+    [
+      { text: "📄 ডিফল্ট নাম ব্যবহার করুন", callback_data: "adm_exp_name_default" }
+    ],
+    [
+      { text: "❌ বাতিল", callback_data: "adm_exp_cancel" }
+    ]
+  ];
+
+  if (messageIdToEdit) {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageIdToEdit,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+      return;
+    } catch (e) {}
+  }
+
+  await bot.sendMessage(chatId, text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+}
+
+async function generateAndSendExportExcel(
+  bot: TelegramBot,
+  chatId: number,
+  exportData: {
+    category?: "facebook" | "fb_hotmail" | "fb_hotmail_0fd" | "instagram" | "all";
+    status?: "pending" | "all";
+    passwordFilter?: string;
+  },
+  fileName: string
+) {
+  try {
+    const loadingMsg = await bot.sendMessage(
+      chatId,
+      `⏳ <b>ডাটাবেজ থেকে তথ্য সংগ্রহ করা হচ্ছে...</b>\n\nঅনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন, এক্সেল ফাইল প্রস্তুত হচ্ছে।`,
+      { parse_mode: "HTML" }
+    );
+
+    const submissionsRef = collection(db, "submissions");
+    const querySnapshot = await getDocs(submissionsRef);
+    const allDocs = querySnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+
+    let filtered = allDocs;
+
+    // 1. Filter Category
+    if (exportData.category && exportData.category !== "all") {
+      filtered = filtered.filter(s => s.category === exportData.category);
+    }
+
+    // 2. Filter Status
+    if (exportData.status === "pending") {
+      filtered = filtered.filter(s => s.status === "pending");
+    }
+
+    // 3. Filter Password
+    if (exportData.passwordFilter && exportData.passwordFilter.trim().length > 0) {
+      const targetPwd = exportData.passwordFilter.trim().toLowerCase();
+      filtered = filtered.filter(s => (s.password || "").trim().toLowerCase() === targetPwd);
+    }
+
+    // Sort by createdAt descending (newest first)
+    filtered.sort((a, b) => {
+      const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tB - tA;
+    });
+
+    const catLabel = EXPORT_CAT_NAMES[exportData.category || "all"] || exportData.category || "সব";
+    const statLabel = exportData.status === "pending" ? "শুধুমাত্র পেন্ডিং (Pending)" : "সব স্ট্যাটাস";
+    const pwdLabel = exportData.passwordFilter ? `"${exportData.passwordFilter}"` : "সব পাসওয়ার্ড";
+
+    if (filtered.length === 0) {
+      try {
+        if (loadingMsg?.message_id) await bot.deleteMessage(chatId, loadingMsg.message_id);
+      } catch {}
+
+      await bot.sendMessage(
+        chatId,
+        `⚠️ <b>কোনো আইডি পাওয়া যায়নি!</b>\n\n` +
+        `আপনার নির্বাচিত ফিল্টার অনুযায়ী ডাটাবেজে ০ টি আইডি পাওয়া গেছে:\n` +
+        `• ক্যাটেগরি: <b>${catLabel}</b>\n` +
+        `• স্ট্যাটাস: <b>${statLabel}</b>\n` +
+        `• পাসওয়ার্ড ফিল্টার: <b>${pwdLabel}</b>\n\n` +
+        `অন্য কোনো ফিল্টার নির্বাচন করে আবার চেষ্টা করতে পারেন।`,
+        {
+          parse_mode: "HTML",
+          reply_markup: getMainMenuReplyMarkup(chatId) as any
+        }
+      );
+      await showAdminExportCategoryMenu(bot, chatId);
+      return;
+    }
+
+    const formatDate = (iso?: string) => {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Dhaka" });
+      } catch {
+        return iso;
+      }
+    };
+
+    let headers: string[] = [];
+    let rows: any[][] = [];
+
+    if (exportData.category === "facebook") {
+      headers = ["UID / Username", "Password", "First Name", "Last Name", "Cookie", "Submitted By", "Status", "Submitted At"];
+      rows = filtered.map(s => [
+        s.username || s.uid || "",
+        s.password || "",
+        s.firstName || "",
+        s.lastName || "",
+        s.cookie || "",
+        s.submittedBy || "",
+        s.status || "",
+        formatDate(s.createdAt)
+      ]);
+    } else if (exportData.category === "fb_hotmail") {
+      headers = ["UID / Username", "Password", "First Name", "Last Name", "Cookie", "2FA Key", "Hotmail Full Token", "Submitted By", "Status", "Submitted At"];
+      rows = filtered.map(s => [
+        s.username || s.uid || "",
+        s.password || "",
+        s.firstName || "",
+        s.lastName || "",
+        s.cookie || "",
+        s.twoFactorKey || "",
+        s.hotmailToken || "",
+        s.submittedBy || "",
+        s.status || "",
+        formatDate(s.createdAt)
+      ]);
+    } else if (exportData.category === "fb_hotmail_0fd") {
+      headers = ["UID / Username", "Password", "First Name", "Last Name", "Cookie", "Hotmail Full Token", "Submitted By", "Status", "Submitted At"];
+      rows = filtered.map(s => [
+        s.username || s.uid || "",
+        s.password || "",
+        s.firstName || "",
+        s.lastName || "",
+        s.cookie || "",
+        s.hotmailToken || "",
+        s.submittedBy || "",
+        s.status || "",
+        formatDate(s.createdAt)
+      ]);
+    } else if (exportData.category === "instagram") {
+      headers = ["Username", "Password", "2FA Key", "Submitted By", "Status", "Submitted At"];
+      rows = filtered.map(s => [
+        s.username || "",
+        s.password || "",
+        s.twoFactorKey || "",
+        s.submittedBy || "",
+        s.status || "",
+        formatDate(s.createdAt)
+      ]);
+    } else {
+      // Category: 'all'
+      headers = ["ক্যাটেগরি", "UID / Username", "Password", "First Name", "Last Name", "Cookie", "2FA Key", "Hotmail Token", "Submitted By", "Status", "Submitted At"];
+      rows = filtered.map(s => [
+        EXPORT_CAT_NAMES[s.category] || s.category || "",
+        s.username || s.uid || "",
+        s.password || "",
+        s.firstName || "",
+        s.lastName || "",
+        s.cookie || "",
+        s.twoFactorKey || "",
+        s.hotmailToken || "",
+        s.submittedBy || "",
+        s.status || "",
+        formatDate(s.createdAt)
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    const sheetTitle = exportData.category ? (exportData.category.slice(0, 31)) : "Accounts";
+    XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+
+    const safeFileName = fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`;
+    const tempFilePath = path.join(process.cwd(), `tmp_${Date.now()}_${safeFileName}`);
+    XLSX.writeFile(wb, tempFilePath);
+
+    try {
+      if (loadingMsg?.message_id) await bot.deleteMessage(chatId, loadingMsg.message_id);
+    } catch {}
+
+    await bot.sendDocument(chatId, tempFilePath, {
+      caption: `✅ <b>এক্সেল ফাইল প্রস্তুত ও ডাউনলোড সম্পন্ন!</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+               `📁 <b>ফাইলের নাম:</b> <code>${escapeBotHtml(safeFileName)}</code>\n` +
+               `📊 <b>মোট আইডি সংখ্যা:</b> <b>${filtered.length}</b> টি\n` +
+               `💼 <b>ক্যাটেগরি:</b> ${catLabel}\n` +
+               `📌 <b>স্ট্যাটাস:</b> ${statLabel}\n` +
+               `🔑 <b>পাসওয়ার্ড ফিল্টার:</b> ${pwdLabel}\n\n` +
+               `<i>🔒 তথ্য: আইডিগুলোর স্ট্যাটাস ডাটাবেজে সম্পূর্ণ অপরিবর্তিত (Unchanged) রাখা হয়েছে।</i>`,
+      parse_mode: "HTML"
+    }, {
+      filename: safeFileName,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+
+    if (fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (e) {}
+    }
+
+    await bot.sendMessage(chatId, "👇 মূল অ্যাডমিন প্যানেল বা অন্য কোনো কাজ করতে মেনু ব্যবহার করুন:", {
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+  } catch (err) {
+    console.error("Error generating custom export excel:", err);
+    await bot.sendMessage(chatId, "❌ এক্সেল ফাইল তৈরি করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।", {
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
   }
 }
 
@@ -2212,6 +2622,124 @@ async function handleAdminControlCallback(bot: TelegramBot, chatId: number, data
     return;
   }
 
+  // 8.1. Export Submissions Menu & Callbacks
+  if (data === "adm_menu_exp") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    await showAdminExportCategoryMenu(bot, chatId, msgId);
+    return;
+  }
+
+  if (data.startsWith("adm_exp_cat_")) {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const category = data.replace("adm_exp_cat_", "") as any;
+    userStates.set(chatId, {
+      step: "main_menu",
+      adminExport: { category }
+    });
+    await showAdminExportStatusMenu(bot, chatId, category, msgId);
+    return;
+  }
+
+  if (data.startsWith("adm_exp_stat_")) {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const status = data.replace("adm_exp_stat_", "") as 'pending' | 'all';
+    const currState = userStates.get(chatId) || { step: 'main_menu' };
+    const exportData = {
+      ...(currState.adminExport || { category: 'all' }),
+      status
+    };
+    userStates.set(chatId, {
+      ...currState,
+      adminExport: exportData
+    });
+    await showAdminExportPasswordMenu(bot, chatId, exportData, msgId);
+    return;
+  }
+
+  if (data === "adm_exp_back_stat") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const currState = userStates.get(chatId);
+    const category = currState?.adminExport?.category || 'all';
+    await showAdminExportStatusMenu(bot, chatId, category, msgId);
+    return;
+  }
+
+  if (data === "adm_exp_pwd_all") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const currState = userStates.get(chatId) || { step: 'main_menu' };
+    const exportData = {
+      ...(currState.adminExport || { category: 'all', status: 'pending' }),
+      passwordFilter: undefined
+    };
+    await promptAdminExportFileName(bot, chatId, exportData, msgId);
+    return;
+  }
+
+  if (data === "adm_exp_pwd_active") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const currState = userStates.get(chatId) || { step: 'main_menu' };
+    const category = currState?.adminExport?.category || 'all';
+    const settings = await getGlobalSettings(true);
+    let activePwd = "";
+    if (category === "facebook") activePwd = settings?.facebookPassword || "";
+    else if (category === "fb_hotmail") activePwd = settings?.fbHotmailPassword || "";
+    else if (category === "fb_hotmail_0fd") activePwd = settings?.fbHotmail0fdPassword || "";
+    else if (category === "instagram") activePwd = settings?.dailyPassword || "";
+    
+    const exportData = {
+      ...(currState.adminExport || { category, status: 'pending' }),
+      passwordFilter: activePwd
+    };
+    await promptAdminExportFileName(bot, chatId, exportData, msgId);
+    return;
+  }
+
+  if (data === "adm_exp_pwd_custom") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const currState = userStates.get(chatId) || { step: 'main_menu' };
+    userStates.set(chatId, {
+      ...currState,
+      step: 'awaiting_admin_export_password'
+    });
+    await bot.sendMessage(
+      chatId,
+      `✏️ <b>পাসওয়ার্ড লিখে ফিল্টার করুন:</b>\n\n` +
+      `যে পাসওয়ার্ড দিয়ে তৈরি হওয়া আইডিগুলো ডাউনলোড করতে চান, সেই পাসওয়ার্ডটি লিখে পাঠান:\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> লিখুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  if (data === "adm_exp_name_default") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    const currState = userStates.get(chatId) || { step: 'main_menu' };
+    const exportData = currState.adminExport || { category: 'all', status: 'pending' };
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const defaultName = `${exportData.category || 'all'}_${exportData.status || 'pending'}_${dateStr}.xlsx`;
+    userStates.delete(chatId);
+    await generateAndSendExportExcel(bot, chatId, exportData, defaultName);
+    return;
+  }
+
+  if (data === "adm_exp_cancel") {
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: "ডাউনলোড বাতিল করা হয়েছে" }); } catch {}
+    userStates.delete(chatId);
+    await bot.sendMessage(chatId, "❌ <b>ডাউনলোড বাতিল করা হয়েছে।</b>", {
+      parse_mode: "HTML",
+      reply_markup: getMainMenuReplyMarkup(chatId) as any
+    });
+    await showAdminControlPanel(bot, chatId);
+    return;
+  }
+
   // 9. Submissions Approval / Rejection
   if (data.startsWith("adm_app_sub_")) {
     const subId = data.replace("adm_app_sub_", "");
@@ -2520,6 +3048,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
     await showAdminControlPanel(bot, chatId);
+    return;
+  }
+  if (text === "/export" || text === "/download" || text === "📥 আইডি ডাউনলোড" || text === "আইডি ডাউনলোড") {
+    if (!isBroadcastAdmin(chatId)) {
+      await bot.sendMessage(chatId, "❌ দুঃখিত, আইডি ডাউনলোড ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+      return;
+    }
+    await showAdminExportCategoryMenu(bot, chatId);
     return;
   }
 
@@ -2927,6 +3463,68 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     }
   }
 
+  // --- Admin Export Password Input Step ---
+  if (state.step === "awaiting_admin_export_password") {
+    if (!isBroadcastAdmin(chatId)) {
+      userStates.delete(chatId);
+      return;
+    }
+
+    if (text === "❌ বাতিল" || text === "বাতিল" || lowerText === "/cancel" || lowerText === "cancel") {
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ <b>ডাউনলোড ফিল্টার বাতিল করা হয়েছে।</b>", {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      await showAdminExportCategoryMenu(bot, chatId);
+      return;
+    }
+
+    const pwd = text.trim();
+    const exportData = {
+      ...(state.adminExport || { category: "all", status: "pending" as const }),
+      passwordFilter: pwd
+    };
+    userStates.set(chatId, {
+      step: "awaiting_admin_export_filename",
+      adminExport: exportData
+    });
+    await promptAdminExportFileName(bot, chatId, exportData);
+    return;
+  }
+
+  // --- Admin Export Filename Input Step ---
+  if (state.step === "awaiting_admin_export_filename") {
+    if (!isBroadcastAdmin(chatId)) {
+      userStates.delete(chatId);
+      return;
+    }
+
+    if (text === "❌ বাতিল" || text === "বাতিল" || lowerText === "/cancel" || lowerText === "cancel") {
+      userStates.delete(chatId);
+      await bot.sendMessage(chatId, "❌ <b>ডাউনলোড বাতিল করা হয়েছে।</b>", {
+        parse_mode: "HTML",
+        reply_markup: getMainMenuReplyMarkup(chatId) as any
+      });
+      await showAdminControlPanel(bot, chatId);
+      return;
+    }
+
+    let cleanName = text.trim().replace(/[/\\?%*:|"<>]/g, "_").trim();
+    const exportData = state.adminExport || { category: "all", status: "pending" as const };
+    if (!cleanName) {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      cleanName = `${exportData.category || "all"}_${exportData.status || "pending"}_${dateStr}`;
+    }
+    if (!cleanName.toLowerCase().endsWith(".xlsx")) {
+      cleanName += ".xlsx";
+    }
+
+    userStates.delete(chatId);
+    await generateAndSendExportExcel(bot, chatId, exportData, cleanName);
+    return;
+  }
+
   // --- 5. Step: Main Menu Actions ---
   if (state.step === "main_menu") {
     if (text === "⚙️ অ্যাডমিন কন্ট্রোল" || text === "অ্যাডমিন কন্ট্রোল" || text === "/admin" || text === "/settings" || text === "/panel") {
@@ -2935,6 +3533,15 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
       await showAdminControlPanel(bot, chatId);
+      return;
+    }
+
+    if (text === "📥 আইডি ডাউনলোড" || text === "আইডি ডাউনলোড" || text === "/export" || text === "/download") {
+      if (!isBroadcastAdmin(chatId)) {
+        await bot.sendMessage(chatId, "❌ দুঃখিত, আইডি ডাউনলোড ফিচারের অ্যাক্সেস শুধুমাত্র প্রধান অ্যাডমিনের জন্য সংরক্ষিত।");
+        return;
+      }
+      await showAdminExportCategoryMenu(bot, chatId);
       return;
     }
 

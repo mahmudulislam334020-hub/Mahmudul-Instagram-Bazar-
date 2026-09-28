@@ -251,6 +251,23 @@ export default function AdminFbHotmail({
           <p className="text-xs text-slate-400 mt-1">
             হটমেইল মেইল, ৩০+ ফ্রেন্ডস, কুকি এবং ২এফএ যুক্ত ফেসবুক আইডি ম্যানেজমেন্ট ও অনুমোদন
           </p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold border ${
+              settings.fbHotmailWorkActive !== false
+                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/40'
+                : 'bg-rose-950/80 text-rose-400 border-rose-800/40'
+            }`}>
+              {settings.fbHotmailWorkActive !== false ? '🟢 কাজ চালু' : '🔴 কাজ বন্ধ'}
+            </span>
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold border flex items-center gap-1 ${
+              settings.fbHotmailRequire2fa !== false
+                ? 'bg-indigo-950/80 text-indigo-300 border-indigo-800/40'
+                : 'bg-amber-950/80 text-amber-300 border-amber-800/40'
+            }`}>
+              <Shield size={12} />
+              <span>{settings.fbHotmailRequire2fa !== false ? '2FA Key: চালু (আবশ্যক)' : '2FA Key: বন্ধ (শুধু কুকি ও টোকেন)'}</span>
+            </span>
+          </div>
         </div>
 
         {/* Sub Navigation Tabs */}
@@ -804,6 +821,37 @@ export default function AdminFbHotmail({
                   type="checkbox"
                   checked={settings.fbHotmailWorkActive !== false}
                   onChange={(e) => setAppSettings(prev => ({ ...prev, fbHotmailWorkActive: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
+
+            {/* 2FA Key Requirement Toggle */}
+            <div className="flex items-center justify-between p-4 bg-slate-950 rounded-xl border border-slate-800">
+              <div>
+                <span className="font-bold text-white text-sm flex items-center gap-2">
+                  <Shield size={16} className={settings.fbHotmailRequire2fa !== false ? "text-indigo-400" : "text-amber-400"} />
+                  <span>2FA Key নেওয়া চালু / বন্ধ (Require 2FA Control)</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    settings.fbHotmailRequire2fa !== false
+                      ? "bg-indigo-950/80 text-indigo-300 border border-indigo-800/40"
+                      : "bg-amber-950/80 text-amber-300 border border-amber-800/40"
+                  }`}>
+                    {settings.fbHotmailRequire2fa !== false ? "🟢 চালু (2FA সহ)" : "⚪ বন্ধ (2FA ছাড়া)"}
+                  </span>
+                </span>
+                <span className="text-xs text-slate-400 block mt-1">
+                  {settings.fbHotmailRequire2fa !== false
+                    ? "অন থাকলে টেলিগ্রাম বটে ইউজার থেকে বাধ্যতামূলকভাবে 2FA Key চাওয়া হবে।"
+                    : "অফ থাকলে 2FA নেওয়া বাদ দিয়ে ইউজার থেকে শুধু UID, কুকি ও হটমেইল ফুল টোকেন নিয়ে কাজ জমা নেওয়া হবে।"}
+                </span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={settings.fbHotmailRequire2fa !== false}
+                  onChange={(e) => setAppSettings(prev => ({ ...prev, fbHotmailRequire2fa: e.target.checked }))}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>

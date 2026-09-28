@@ -210,14 +210,40 @@ export default function AdminReferral({
               <div className="relative">
                 <input 
                   type="number"
+                  step="any"
+                  min="0"
+                  max="100"
                   value={settings.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10}
-                  onChange={(e) => setAppSettings(prev => ({ ...prev, referralCommissionPercent: parseFloat(e.target.value) || 0 }))}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setAppSettings(prev => ({ ...prev, referralCommissionPercent: v === '' ? ('' as any) : parseFloat(v) }));
+                  }}
                   className="w-full bg-slate-900 border border-slate-700 px-4 py-3 pr-10 rounded-lg text-amber-300 font-black text-base outline-none focus:border-amber-500 transition-all"
-                  placeholder="e.g. 10"
+                  placeholder="e.g. 1, 2 or 10"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-amber-400 font-bold">%</span>
               </div>
               <p className="text-[11px] text-slate-500">রেফারকৃত মেম্বার কাজ জমা দিয়ে অনুমোদিত (Approved) হলে তাদের মোট আয় থেকে রেফারকারী এই % কমিশন পাবে।</p>
+            </div>
+
+            {/* Referral Fixed Signup Bonus */}
+            <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-emerald-400 block">
+                🎁 প্রতি রেফারে ফিক্সড বোনাস (Referral Join Bonus - ৳)
+              </label>
+              <input 
+                type="number"
+                step="any"
+                min="0"
+                value={settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : 10}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAppSettings(prev => ({ ...prev, referralBonusAmount: v === '' ? ('' as any) : parseFloat(v) }));
+                }}
+                className="w-full bg-slate-900 border border-slate-700 px-4 py-3 rounded-lg text-emerald-300 font-black text-base outline-none focus:border-emerald-500 transition-all"
+                placeholder="e.g. 10"
+              />
+              <p className="text-[11px] text-slate-500">নতুন কেউ রেফারেল লিংক দিয়ে যুক্ত হলে রেফারকারী এককালীন এই বোনাস পাবে।</p>
             </div>
 
             {/* Minimum Referral Withdraw Limit */}
@@ -227,8 +253,13 @@ export default function AdminReferral({
               </label>
               <input 
                 type="number"
+                step="any"
+                min="0"
                 value={settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : 500}
-                onChange={(e) => setAppSettings(prev => ({ ...prev, minReferralWithdrawLimit: parseFloat(e.target.value) || 0 }))}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAppSettings(prev => ({ ...prev, minReferralWithdrawLimit: v === '' ? ('' as any) : parseFloat(v) }));
+                }}
                 className="w-full bg-slate-900 border border-slate-700 px-4 py-3 rounded-lg text-indigo-300 font-black text-base outline-none focus:border-indigo-500 transition-all"
                 placeholder="e.g. 500"
               />

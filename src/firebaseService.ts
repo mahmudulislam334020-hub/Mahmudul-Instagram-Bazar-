@@ -82,6 +82,7 @@ export interface AppSettings {
   facebookWorkActive?: boolean;
   facebookRatePerId?: number;
   fbHotmailWorkActive?: boolean;
+  fbHotmailRequire2fa?: boolean;
   fbHotmailRatePerId?: number;
   fbHotmailPassword?: string;
   fbHotmailFirstName?: string;
@@ -168,6 +169,7 @@ const getFallbackSettings = (): AppSettings => {
     facebookWorkActive: true,
     facebookRatePerId: 45,
     fbHotmailWorkActive: true,
+    fbHotmailRequire2fa: true,
     fbHotmailRatePerId: 50,
     fbHotmailPassword: "",
     fbHotmailFirstName: "",
@@ -465,6 +467,7 @@ export async function getSettings(): Promise<AppSettings> {
             if (data.facebookWorkActive === undefined && wData.facebookWorkActive !== undefined) data.facebookWorkActive = wData.facebookWorkActive;
             if (data.facebookRatePerId === undefined && wData.facebookRatePerId !== undefined) data.facebookRatePerId = wData.facebookRatePerId;
             if (data.fbHotmailWorkActive === undefined && wData.fbHotmailWorkActive !== undefined) data.fbHotmailWorkActive = wData.fbHotmailWorkActive;
+            if (data.fbHotmailRequire2fa === undefined && wData.fbHotmailRequire2fa !== undefined) data.fbHotmailRequire2fa = wData.fbHotmailRequire2fa;
             if (data.fbHotmailRatePerId === undefined && wData.fbHotmailRatePerId !== undefined) data.fbHotmailRatePerId = wData.fbHotmailRatePerId;
             if (data.fbHotmail0fdWorkActive === undefined && wData.fbHotmail0fdWorkActive !== undefined) data.fbHotmail0fdWorkActive = wData.fbHotmail0fdWorkActive;
             if (data.fbHotmail0fdRatePerId === undefined && wData.fbHotmail0fdRatePerId !== undefined) data.fbHotmail0fdRatePerId = wData.fbHotmail0fdRatePerId;
@@ -579,6 +582,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
         facebookWorkActive: safeSettings.facebookWorkActive,
         facebookRatePerId: safeSettings.facebookRatePerId,
         fbHotmailWorkActive: safeSettings.fbHotmailWorkActive,
+        fbHotmailRequire2fa: safeSettings.fbHotmailRequire2fa !== undefined ? safeSettings.fbHotmailRequire2fa : true,
         fbHotmailRatePerId: safeSettings.fbHotmailRatePerId,
         fbHotmail0fdWorkActive: safeSettings.fbHotmail0fdWorkActive,
         fbHotmail0fdRatePerId: safeSettings.fbHotmail0fdRatePerId,

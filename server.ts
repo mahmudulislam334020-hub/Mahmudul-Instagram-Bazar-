@@ -85,6 +85,7 @@ async function getGlobalSettings() {
       facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
       facebookRatePerId: parseFirestoreNum(fields.facebookRatePerId, parseFirestoreNum(fields.ratePerId, 45)),
       fbHotmailWorkActive: fields.fbHotmailWorkActive?.booleanValue !== false,
+      fbHotmailRequire2fa: fields.fbHotmailRequire2fa?.booleanValue !== false,
       fbHotmailRatePerId: parseFirestoreNum(fields.fbHotmailRatePerId, 50),
       fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
       fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",

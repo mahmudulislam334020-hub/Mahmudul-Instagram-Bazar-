@@ -103,6 +103,7 @@ interface BotState {
     cookie?: string;
     twoFactorKey?: string;
     hotmailToken?: string;
+    require2fa?: boolean;
     promptMsgId?: number;
   };
   fbHotmail0fdData?: {
@@ -294,6 +295,7 @@ export async function getGlobalSettings(forceRefresh = false) {
           facebookWorkActive: fields.facebookWorkActive?.booleanValue !== false,
           facebookRatePerId: parseBotFirestoreNum(fields.facebookRatePerId, parseBotFirestoreNum(fields.ratePerId, 45)),
           fbHotmailWorkActive: fields.fbHotmailWorkActive?.booleanValue !== false,
+          fbHotmailRequire2fa: fields.fbHotmailRequire2fa?.booleanValue !== false,
           fbHotmailRatePerId: parseBotFirestoreNum(fields.fbHotmailRatePerId, 50),
           fbHotmailPassword: fields.fbHotmailPassword?.stringValue || "",
           fbHotmailFirstName: fields.fbHotmailFirstName?.stringValue || "",
@@ -359,6 +361,7 @@ export async function getGlobalSettings(forceRefresh = false) {
     leaderboardEnabled: true,
     facebookWorkActive: false,
     fbHotmailWorkActive: false,
+    fbHotmailRequire2fa: true,
     fbHotmail0fdWorkActive: false,
     instagramWorkActive: false
   };
@@ -1233,7 +1236,7 @@ export async function updateGlobalSettingsFromBot(updates: Record<string, any>):
     // Also update work_backup if any work/rate setting is in updates
     const workKeys = [
       'facebookWorkActive', 'facebookRatePerId', 'facebookPassword', 'facebookFirstName', 'facebookLastName',
-      'fbHotmailWorkActive', 'fbHotmailRatePerId', 'fbHotmailPassword', 'fbHotmailFirstName', 'fbHotmailLastName',
+      'fbHotmailWorkActive', 'fbHotmailRequire2fa', 'fbHotmailRatePerId', 'fbHotmailPassword', 'fbHotmailFirstName', 'fbHotmailLastName',
       'fbHotmail0fdWorkActive', 'fbHotmail0fdRatePerId', 'fbHotmail0fdPassword', 'fbHotmail0fdFirstName', 'fbHotmail0fdLastName',
       'instagramWorkActive', 'ratePerId', 'dailyPassword', 'usernamePrefix'
     ];
@@ -1270,6 +1273,7 @@ export async function showAdminControlPanel(bot: TelegramBot, chatId: number, me
   const fbPwd = settings?.facebookPassword ? `<code>${escapeBotHtml(settings.facebookPassword)}</code>` : "<i>সেট নেই</i>";
 
   const fbHotmailWork = settings?.fbHotmailWorkActive !== false ? "🟢 চালু" : "🔴 বন্ধ";
+  const fbHotmail2faStatus = settings?.fbHotmailRequire2fa !== false ? "2FA সহ" : "2FA ছাড়া";
   const fbHotmailRate = settings?.fbHotmailRatePerId || 50;
   const fbHotmailPwd = settings?.fbHotmailPassword ? `<code>${escapeBotHtml(settings.fbHotmailPassword)}</code>` : "<i>সেট নেই</i>";
 
@@ -1298,7 +1302,7 @@ export async function showAdminControlPanel(bot: TelegramBot, chatId: number, me
     `<i>শুধুমাত্র প্রধান অ্যাডমিন (ID: <code>${chatId}</code>)-এর জন্য নির্ধারিত।</i>\n\n` +
     `💼 <b>কাজের বর্তমান অবস্থা ও রেট:</b>\n` +
     `• <b>Facebook Cookie:</b> ${fbWork} | রেট: ৳${fbRate} | পাস: ${fbPwd}\n` +
-    `• <b>FB Hotmail 30+fd:</b> ${fbHotmailWork} | রেট: ৳${fbHotmailRate} | পাস: ${fbHotmailPwd}\n` +
+    `• <b>FB Hotmail 30+fd:</b> ${fbHotmailWork} (${fbHotmail2faStatus}) | রেট: ৳${fbHotmailRate} | পাস: ${fbHotmailPwd}\n` +
     `• <b>FB Hotmail 0fd:</b> ${fb0fdWork} | রেট: ৳${fb0fdRate} | পাস: ${fb0fdPwd}\n` +
     `• <b>Instagram:</b> ${instaWork} | রেট: ৳${instaRate} | পাস: ${instaPwd}\n\n` +
     `🏦 <b>উইথড্রয়াল ও পেমেন্ট:</b>\n` +
@@ -1357,21 +1361,24 @@ async function showAdminWorkTogglesMenu(bot: TelegramBot, chatId: number, messag
   const settings = await getGlobalSettings(true);
   const fb = settings?.facebookWorkActive !== false;
   const fbH = settings?.fbHotmailWorkActive !== false;
+  const fbH2fa = settings?.fbHotmailRequire2fa !== false;
   const fb0 = settings?.fbHotmail0fdWorkActive === true;
   const ig = settings?.instagramWorkActive !== false;
 
   const text = 
     `💼 <b>কাজের সচল/বন্ধ অবস্থা নির্ধারণ (Work Status)</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `নিচের বাটনে ক্লিক করে যেকোনো কাজ তাৎক্ষণিক চালু বা বন্ধ করুন:\n\n` +
+    `নিচের বাটনে ক্লিক করে যেকোনো কাজ ও অপশন তাৎক্ষণিক চালু বা বন্ধ করুন:\n\n` +
     `• Facebook Cookie: ${fb ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
     `• FB Hotmail 30+fd: ${fbH ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `  └ 🛡️ 2FA Key নেওয়া: ${fbH2fa ? "🟢 চালু (2FA আবশ্যক)" : "⚪ বন্ধ (2FA ছাড়া বাকিগুলো)"}\n` +
     `• FB Hotmail 0fd: ${fb0 ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
     `• Instagram: ${ig ? "🟢 চালু" : "🔴 বন্ধ"}`;
 
   const inlineKeyboard = [
     [{ text: `Facebook Cookie: ${fb ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fb" }],
     [{ text: `FB Hotmail 30+fd: ${fbH ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fbh" }],
+    [{ text: `└ 🛡️ 2FA নেওয়া: ${fbH2fa ? "🟢 চালু (বন্ধ করতে চাপুন)" : "⚪ বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fbh_2fa" }],
     [{ text: `FB Hotmail 0fd: ${fb0 ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_fb0" }],
     [{ text: `Instagram: ${ig ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_ig" }],
     [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
@@ -1530,18 +1537,24 @@ async function showAdminReferralMenu(bot: TelegramBot, chatId: number, messageId
   const refActive = settings?.referralSystemEnabled !== false;
   const bonus = settings?.referralBonusAmount || 10;
   const minWd = settings?.minReferralWithdrawLimit || 500;
+  const commission = settings?.referralCommissionPercent !== undefined ? settings.referralCommissionPercent : 10;
+  const botUsername = settings?.botUsername || "";
 
   const text =
     `👥 <b>রেফারেল সিস্টেম সেটিংস (Referral Settings)</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `• রেফারেল সিস্টেম: ${refActive ? "🟢 চালু" : "🔴 বন্ধ"}\n` +
+    `• রেফারেল কাজের কমিশন: <b>${commission}%</b>\n` +
     `• প্রতি সফল রেফারে বোনাস: <b>৳${bonus} Taka</b>\n` +
-    `• রেফারেল ব্যালেন্স তোলার মিনিমাম লিমিট: <b>৳${minWd} Taka</b>`;
+    `• রেফারেল ব্যালেন্স তোলার মিনিমাম লিমিট: <b>৳${minWd} Taka</b>\n` +
+    `• টেলিগ্রাম বট ইউজারনেম: <b>${botUsername ? '@' + botUsername : 'নির্ধারণ করা হয়নি'}</b>`;
 
   const inlineKeyboard = [
     [{ text: `রেফারেল সিস্টেম: ${refActive ? "🟢 চালু (বন্ধ করতে চাপুন)" : "🔴 বন্ধ (চালু করতে চাপুন)"}`, callback_data: "adm_tog_ref_sys" }],
-    [{ text: `✏️ প্রতি রেফার বোনাস পরিবর্তন (৳${bonus})`, callback_data: "adm_set_ref_bonus" }],
+    [{ text: `✏️ রেফার কমিশন পরিবর্তন (${commission}%)`, callback_data: "adm_set_ref_comm" }],
+    [{ text: `✏️ প্রতি রেফার বোনাস (৳${bonus})`, callback_data: "adm_set_ref_bonus" }],
     [{ text: `✏️ রেফার মিনিমাম উইথড্র লিমিট (৳${minWd})`, callback_data: "adm_set_ref_min" }],
+    [{ text: `✏️ টেলিগ্রাম বট ইউজারনেম (@${botUsername || 'নেই'})`, callback_data: "adm_set_ref_bot_user" }],
     [{ text: "« মূল কন্ট্রোল প্যানেলে ফিরুন", callback_data: "adm_menu_main" }]
   ];
 
@@ -2355,6 +2368,15 @@ async function handleAdminControlCallback(bot: TelegramBot, chatId: number, data
     return;
   }
 
+  if (data === "adm_tog_fbh_2fa") {
+    const cur = await getGlobalSettings(true);
+    const nextState = cur?.fbHotmailRequire2fa === false ? true : false;
+    await updateGlobalSettingsFromBot({ fbHotmailRequire2fa: nextState });
+    try { await bot.answerCallbackQuery(callbackQuery.id, { text: `FB Hotmail 2FA Key নেওয়া ${nextState ? "চালু (আবশ্যক)" : "বন্ধ (বাদ দেওয়া)"} হয়েছে!` }); } catch {}
+    await showAdminWorkTogglesMenu(bot, chatId, msgId);
+    return;
+  }
+
   if (data === "adm_tog_fb0") {
     const cur = await getGlobalSettings(true);
     const nextState = cur?.fbHotmail0fdWorkActive === true ? false : true;
@@ -2602,6 +2624,65 @@ async function handleAdminControlCallback(bot: TelegramBot, chatId: number, data
       chatId,
       `👥 <b>রেফারেল মিনিমাম উইথড্র লিমিট নির্ধারণ:</b>\n\n` +
       `রেফার বোনাস তোলার সর্বনিম্ন লিমিট কত টাকা নির্ধারণ করতে চান তা সংখ্যায় লিখে পাঠান (যেমন: 500):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  if (data === "adm_set_ref_comm") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: "referralCommissionPercent",
+        label: "রেফারেল কাজের কমিশন হার (%)",
+        type: 'number',
+        menuToReturn: 'adm_menu_ref'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `🎁 <b>রেফারেল কাজের কমিশন হার (%) নির্ধারণ:</b>\n\n` +
+      `রেফারকারী মেম্বারদের মোট কাজের আয়ের কত শতাংশ (%) কমিশন পাবে তা সংখ্যায় লিখে পাঠান (যেমন: 1 বা 2 বা 10):\n\n` +
+      `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ বাতিল", style: "danger" }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        } as any
+      }
+    );
+    return;
+  }
+
+  if (data === "adm_set_ref_bot_user") {
+    try { await bot.answerCallbackQuery(callbackQuery.id); } catch {}
+    userStates.set(chatId, {
+      step: 'awaiting_admin_setting_input',
+      adminSettingInput: {
+        field: "botUsername",
+        label: "টেলিগ্রাম বট ইউজারনেম",
+        type: 'text',
+        menuToReturn: 'adm_menu_ref'
+      }
+    });
+
+    await bot.sendMessage(
+      chatId,
+      `🤖 <b>টেলিগ্রাম বট ইউজারনেম নির্ধারণ:</b>\n\n` +
+      `রেফারেল লিংক তৈরির জন্য আপনার টেলিগ্রাম বটের ইউজারনেম লিখে পাঠান (যেমন: <code>accounttradecenterXincome_bot</code>):\n\n` +
+      `<i>(ইউজারনেমে @ দেওয়ার প্রয়োজন নেই)</i>\n\n` +
       `বাতিল করতে চাইলে <b>❌ বাতিল</b> বাটনে চাপুন।`,
       {
         parse_mode: "HTML",
@@ -3436,7 +3517,10 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       }
       return;
     } else {
-      const val = text.trim();
+      let val = text.trim();
+      if (inputData.field === 'botUsername') {
+        val = val.replace('@', '').trim();
+      }
       if (!val) {
         await bot.sendMessage(chatId, `⚠️ টেক্সট খালি হতে পারে না। অনুগ্রহ করে সঠিক টেক্সট লিখে পাঠান:\n\nবাতিল করতে চাইলে <b>❌ বাতিল</b> লিখুন।`);
         return;
@@ -3562,15 +3646,17 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
     if (text.includes("ফেসবুকের কাজ") && !text.includes("Cookie") && !text.includes("Hotmail") && !text.includes("0fd")) {
       let fbActive = true;
       let fbHotmailActive = true;
+      let fbHotmail2fa = true;
       let fbHotmail0fdActive = true;
       let fbRate = 45;
       let fbHotmailRate = 50;
       let fbHotmail0fdRate = 40;
       try {
-        const sData = await getGlobalSettings();
+        const sData = await getGlobalSettings(true);
         if (sData) {
           fbActive = sData.facebookWorkActive !== false;
           fbHotmailActive = sData.fbHotmailWorkActive !== false;
+          fbHotmail2fa = sData.fbHotmailRequire2fa !== false;
           fbHotmail0fdActive = sData.fbHotmail0fdWorkActive !== false;
           fbRate = sData.facebookRatePerId !== undefined ? sData.facebookRatePerId : (sData.ratePerId || 45);
           fbHotmailRate = sData.fbHotmailRatePerId !== undefined ? sData.fbHotmailRatePerId : 50;
@@ -3585,7 +3671,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         fbButtons.push([{ text: `number/anymail Facebook Cookie (৳${fbRate})`, style: "primary" }]);
       }
       if (fbHotmailActive) {
-        fbButtons.push([{ text: `FB Hotmail 30+fd Cooki + 2fa (৳${fbHotmailRate})`, style: "primary" }]);
+        fbButtons.push([{ text: `FB Hotmail 30+fd ${fbHotmail2fa ? "Cooki + 2fa" : "Cookie"} (৳${fbHotmailRate})`, style: "primary" }]);
       }
       if (fbHotmail0fdActive) {
         fbButtons.push([{ text: `Facebook Hotmaill 0fd cookie (৳${fbHotmail0fdRate})`, style: "success" }]);
@@ -3647,13 +3733,15 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
-    if (text.includes("FB Hotmail") || text.includes("Hotmail 30+fd") || text.includes("30+fd Cooki")) {
+    if (text.includes("FB Hotmail") || text.includes("Hotmail 30+fd") || text.includes("30+fd Cooki") || text.includes("30+fd Cookie")) {
       let isWorkActive = true;
       let password = "";
+      let require2fa = true;
       try {
-        const sData = await getGlobalSettings();
+        const sData = await getGlobalSettings(true);
         if (sData) {
           password = sData.fbHotmailPassword || sData.facebookPassword || "";
+          require2fa = sData.fbHotmailRequire2fa !== false;
           if (sData.fbHotmailWorkActive === false) {
             isWorkActive = false;
           }
@@ -3676,12 +3764,14 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         password = "Fb@" + Math.floor(100000 + Math.random() * 900000);
       }
 
-      const fbText = `🔥 <b>FB Hotmail 30+fd Cooki + 2fa কাজের তথ্য:</b>\n\n` +
+      const fbText = `🔥 <b>FB Hotmail 30+fd ${require2fa ? "Cooki + 2fa" : "Cookie"} কাজের তথ্য:</b>\n\n` +
                      `👤 <b>First Name:</b> <code>${firstName}</code>\n` +
                      `👤 <b>Last Name:</b> <code>${lastName}</code>\n` +
                      `🔑 <b>Password:</b> <code>${password}</code>\n\n` +
                      `⚠️ <b>বিশেষ নোট:</b> আইডি টি অবশ্যই <b>Hotmail</b> দিয়ে খুলতে হবে এবং ৩০+ ফ্রেন্ড (30+ Friends) যুক্ত থাকতে হবে।\n\n` +
-                     `<i>(অনুগ্রহ করে উপরের নাম ও পাসওয়ার্ড দিয়ে Hotmail দিয়ে ফেসবুক আইডি খুলে 2FA চালু করুন। এরপর নিচের <b>'Send UID'</b> বাটনে ক্লিক করুন)</i>`;
+                     (require2fa 
+                       ? `<i>(অনুগ্রহ করে উপরের নাম ও পাসওয়ার্ড দিয়ে Hotmail দিয়ে ফেসবুক আইডি খুলে 2FA চালু করুন। এরপর নিচের <b>'Send UID'</b> বাটনে ক্লিক করুন)</i>`
+                       : `<i>(অনুগ্রহ করে উপরের নাম ও পাসওয়ার্ড দিয়ে Hotmail দিয়ে ফেসবুক আইডি খুলুন। (2FA এর প্রয়োজন নেই)। এরপর নিচের <b>'Send UID'</b> বাটনে ক্লিক করুন)</i>`);
 
       await bot.sendMessage(chatId, fbText, {
         parse_mode: "HTML",
@@ -3699,7 +3789,8 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       state.fbHotmailData = {
         firstName,
         lastName,
-        password
+        password,
+        require2fa
       };
       userStates.set(chatId, state);
       return;
@@ -4360,20 +4451,40 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       return;
     }
 
+    const curSettings = await getGlobalSettings(true);
+    const is2faRequired = curSettings?.fbHotmailRequire2fa !== false;
+
     if (state.fbHotmailData) {
       state.fbHotmailData.cookie = text.trim();
+      state.fbHotmailData.require2fa = is2faRequired;
     }
-    state.step = "awaiting_fb_hotmail_2fa";
-    userStates.set(chatId, state);
 
-    await bot.sendMessage(chatId, `🛡️ কুকি সফলভাবে গ্রহণ করা হয়েছে!\n\nএখন অনুগ্রহ করে ফেসবুক আইডির <b>Two-Factor Authentication Key (2FA Key)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
-      parse_mode: "HTML",
-      reply_markup: {
-        keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
-        resize_keyboard: true
-      } as any
-    });
-    return;
+    if (is2faRequired) {
+      state.step = "awaiting_fb_hotmail_2fa";
+      userStates.set(chatId, state);
+
+      await bot.sendMessage(chatId, `🛡️ কুকি সফলভাবে গ্রহণ করা হয়েছে!\n\nএখন অনুগ্রহ করে ফেসবুক আইডির <b>Two-Factor Authentication Key (2FA Key)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    } else {
+      // 2FA Key is OFF: skip 2FA step and directly ask for Hotmail Token!
+      state.step = "awaiting_fb_hotmail_token";
+      userStates.set(chatId, state);
+
+      await bot.sendMessage(chatId, `🍪 কুকি সফলভাবে গ্রহণ করা হয়েছে!\n\nএখন অনুগ্রহ করে আপনার <b>Hotmail এর ফুল টোকেন (Hotmail Full Token)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
+      return;
+    }
   }
 
   // --- FB Hotmail Step 3: Awaiting 2FA Key ---
@@ -4384,6 +4495,46 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
       userStates.set(chatId, state);
       await bot.sendMessage(chatId, "❌ FB Hotmail কাজটি বাতিল করা হয়েছে।");
       await showMainMenu(bot, chatId, profile);
+      return;
+    }
+
+    // Live check if 2FA has been disabled by admin while user was on this step
+    const curSettings = await getGlobalSettings(true);
+    if (curSettings?.fbHotmailRequire2fa === false) {
+      // 2FA is now OFF: skip 2FA immediately!
+      state.step = "awaiting_fb_hotmail_token";
+      if (state.fbHotmailData) {
+        state.fbHotmailData.require2fa = false;
+        state.fbHotmailData.twoFactorKey = "";
+      }
+      userStates.set(chatId, state);
+
+      // If user typed what appears to be the Hotmail token, accept it directly!
+      if (text && text.trim().length >= 5) {
+        if (state.fbHotmailData) state.fbHotmailData.hotmailToken = text.trim();
+        state.step = "awaiting_fb_hotmail_complete";
+        userStates.set(chatId, state);
+        await bot.sendMessage(chatId, `✅ Hotmail ফুল টোকেন সফলভাবে গ্রহণ করা হয়েছে (2FA বন্ধ রয়েছে)!\n\nকাজটি সম্পূর্ণ ও জমা করতে নিচে <b>'✅ কাজ সম্পূর্ণ'</b> বাটনে ক্লিক করুন:`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            keyboard: [
+              [{ text: "✅ কাজ সম্পূর্ণ", style: "success" }],
+              [{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: false
+          } as any
+        });
+        return;
+      }
+
+      await bot.sendMessage(chatId, `ℹ️ <b>2FA Key নেওয়া বন্ধ রয়েছে।</b>\n\nএখন অনুগ্রহ করে আপনার <b>Hotmail এর ফুল টোকেন (Hotmail Full Token)</b> টি নিচে লিখে বা পেস্ট করে পাঠান:`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          keyboard: [[{ text: "❌ কাজটি বাতিল করুন", style: "danger" }]],
+          resize_keyboard: true
+        } as any
+      });
       return;
     }
 
@@ -4470,7 +4621,12 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
 
     if (text === "✅ কাজ সম্পূর্ণ" || text === "কাজ সম্পূর্ণ") {
       const fd = state.fbHotmailData;
-      if (!fd || !fd.uid || !fd.cookie || !fd.twoFactorKey || !fd.hotmailToken) {
+      const settings = await getGlobalSettings();
+      const is2faRequired = fd?.require2fa !== undefined 
+        ? fd.require2fa 
+        : (settings?.fbHotmailRequire2fa !== false);
+
+      if (!fd || !fd.uid || !fd.cookie || (is2faRequired && !fd.twoFactorKey) || !fd.hotmailToken) {
         await bot.sendMessage(chatId, "❌ তথ্য পাওয়া যায়নি বা অপূর্ণ। অনুগ্রহ করে নতুন করে কাজ শুরু করুন।");
         state.step = "main_menu";
         state.fbHotmailData = undefined;
@@ -4505,8 +4661,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
         return;
       }
 
-      // Get current settings
-      const settings = await getGlobalSettings();
+      // Current settings already loaded above
       const fbHotmailRate = settings?.fbHotmailRatePerId !== undefined 
         ? settings.fbHotmailRatePerId 
         : (settings?.facebookRatePerId !== undefined ? settings.facebookRatePerId : (settings?.ratePerId || 50));
@@ -4546,7 +4701,7 @@ async function handleBotMessage(bot: TelegramBot, chatId: number, text: string, 
                         `🔑 <b>Password:</b> <code>${escapeHtml(fd.password)}</code>\n` +
                         `🆔 <b>UID:</b> <code>${escapeHtml(fd.uid)}</code>\n` +
                         `🍪 <b>Cookie:</b> <code>${escapeHtml(fd.cookie)}</code>\n` +
-                        `🛡️ <b>2FA Key:</b> <code>${escapeHtml(fd.twoFactorKey)}</code>\n` +
+                        (fd.twoFactorKey ? `🛡️ <b>2FA Key:</b> <code>${escapeHtml(fd.twoFactorKey)}</code>\n` : `🛡️ <b>2FA Key:</b> <i>(2FA নেওয়া বন্ধ ছিল)</i>\n`) +
                         `📧 <b>Hotmail Token:</b> <code>${escapeHtml(fd.hotmailToken)}</code>\n` +
                         `💵 <b>Rate:</b> ${fbHotmailRate} Taka\n` +
                         `👤 <b>Submitted By:</b> <code>${profile.walletNumber || chatId}</code> (Bot)\n` +
@@ -5784,9 +5939,11 @@ export async function syncTelegramBot(isFromWebhook = false) {
       }
     });
 
+    const isAiStudio = Boolean(process.env.APP_URL && process.env.APP_URL.includes("run.app"));
+
     // CRITICAL: On Vercel / serverless or when receiving a webhook request, DO NOT call setWebHook on every cold start!
-    // /api/telegram-set-webhook handles registering the webhook explicitly.
-    if (webhookUrl && !isFromWebhook && !process.env.VERCEL) {
+    // In AI Studio development, run polling mode so code updates here process Telegram updates directly!
+    if (webhookUrl && !isFromWebhook && !process.env.VERCEL && !isAiStudio) {
       const fullWebhookUrl = `${webhookUrl}/api/telegram-webhook`;
       console.log(`[Telegram Bot] Setting up Webhook mode pointing to: ${fullWebhookUrl}`);
       try {
@@ -5795,10 +5952,10 @@ export async function syncTelegramBot(isFromWebhook = false) {
       } catch (whErr) {
         console.error("[Telegram Bot] Error setting Webhook:", whErr);
       }
-    } else if (webhookUrl || process.env.VERCEL) {
+    } else if (!isAiStudio && (webhookUrl || process.env.VERCEL)) {
       console.log("[Telegram Bot] Webhook mode initialized for incoming updates.");
     } else {
-      console.log("[Telegram Bot] Setting up Polling mode...");
+      console.log("[Telegram Bot] Setting up Polling mode in AI Studio development...");
       
       // Handle polling errors gracefully (especially 409 Conflict)
       bot.on("polling_error", async (err: any) => {

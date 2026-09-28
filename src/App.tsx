@@ -198,6 +198,7 @@ export default function App() {
       instagramWorkActive: true,
       facebookWorkActive: false,
       fbHotmailWorkActive: false,
+      fbHotmailRequire2fa: true,
       fbHotmail0fdWorkActive: false,
       leaderboardEnabled: true,
       withdrawalsEnabled: true,
@@ -396,6 +397,7 @@ export default function App() {
         facebookWorkActive: fetchedSettings.facebookWorkActive !== undefined ? fetchedSettings.facebookWorkActive : prev.facebookWorkActive,
         facebookRatePerId: fetchedSettings.facebookRatePerId !== undefined ? fetchedSettings.facebookRatePerId : prev.facebookRatePerId,
         fbHotmailWorkActive: fetchedSettings.fbHotmailWorkActive !== undefined ? fetchedSettings.fbHotmailWorkActive : prev.fbHotmailWorkActive,
+        fbHotmailRequire2fa: fetchedSettings.fbHotmailRequire2fa !== undefined ? fetchedSettings.fbHotmailRequire2fa : (prev.fbHotmailRequire2fa !== undefined ? prev.fbHotmailRequire2fa : true),
         fbHotmailRatePerId: fetchedSettings.fbHotmailRatePerId !== undefined ? fetchedSettings.fbHotmailRatePerId : prev.fbHotmailRatePerId,
         fbHotmail0fdWorkActive: fetchedSettings.fbHotmail0fdWorkActive !== undefined ? fetchedSettings.fbHotmail0fdWorkActive : prev.fbHotmail0fdWorkActive,
         fbHotmail0fdRatePerId: fetchedSettings.fbHotmail0fdRatePerId !== undefined ? fetchedSettings.fbHotmail0fdRatePerId : prev.fbHotmail0fdRatePerId,
@@ -1201,6 +1203,7 @@ export default function App() {
             updatedSettings = {
               ...existingSettings,
               fbHotmailWorkActive: settings.fbHotmailWorkActive !== undefined ? settings.fbHotmailWorkActive : existingSettings.fbHotmailWorkActive,
+              fbHotmailRequire2fa: settings.fbHotmailRequire2fa !== undefined ? settings.fbHotmailRequire2fa : (existingSettings.fbHotmailRequire2fa !== undefined ? existingSettings.fbHotmailRequire2fa : true),
               fbHotmailRatePerId: settings.fbHotmailRatePerId !== undefined ? settings.fbHotmailRatePerId : existingSettings.fbHotmailRatePerId,
               fbHotmailPassword: settings.fbHotmailPassword !== undefined ? settings.fbHotmailPassword : existingSettings.fbHotmailPassword,
               fbHotmailFirstName: settings.fbHotmailFirstName !== undefined ? settings.fbHotmailFirstName : existingSettings.fbHotmailFirstName,
@@ -1224,12 +1227,24 @@ export default function App() {
               usernamePrefix: settings.usernamePrefix !== undefined ? settings.usernamePrefix : existingSettings.usernamePrefix,
             };
           } else if (activeTab === 'admin_bot') {
+            const cleanBotUsername = settings.botUsername !== undefined ? (settings.botUsername || '').replace('@', '').trim() : existingSettings.botUsername;
             updatedSettings = {
               ...existingSettings,
               telegramBotToken: settings.telegramBotToken || existingSettings.telegramBotToken,
               telegramChatId: settings.telegramChatId || existingSettings.telegramChatId,
               webhookUrl: settings.webhookUrl !== undefined ? settings.webhookUrl : existingSettings.webhookUrl,
-              botUsername: settings.botUsername !== undefined ? settings.botUsername : existingSettings.botUsername,
+              botUsername: cleanBotUsername,
+              minWithdraw: settings.minWithdraw !== undefined ? Number(settings.minWithdraw) : existingSettings.minWithdraw,
+              minReferralWithdrawLimit: settings.minReferralWithdrawLimit !== undefined ? Number(settings.minReferralWithdrawLimit) : existingSettings.minReferralWithdrawLimit,
+              referralSystemEnabled: settings.referralSystemEnabled !== undefined ? settings.referralSystemEnabled : existingSettings.referralSystemEnabled,
+              referralBonusAmount: settings.referralBonusAmount !== undefined ? Number(settings.referralBonusAmount) : existingSettings.referralBonusAmount,
+              referralCommissionPercent: settings.referralCommissionPercent !== undefined ? Number(settings.referralCommissionPercent) : existingSettings.referralCommissionPercent,
+              withdrawalsEnabled: settings.withdrawalsEnabled !== undefined ? settings.withdrawalsEnabled : existingSettings.withdrawalsEnabled,
+              bkashEnabled: settings.bkashEnabled !== undefined ? settings.bkashEnabled : existingSettings.bkashEnabled,
+              nagadEnabled: settings.nagadEnabled !== undefined ? settings.nagadEnabled : existingSettings.nagadEnabled,
+              rocketEnabled: settings.rocketEnabled !== undefined ? settings.rocketEnabled : existingSettings.rocketEnabled,
+              forceJoinGroup: settings.forceJoinGroup !== undefined ? settings.forceJoinGroup : existingSettings.forceJoinGroup,
+              forceJoinMethodChannel: settings.forceJoinMethodChannel !== undefined ? settings.forceJoinMethodChannel : existingSettings.forceJoinMethodChannel,
             };
           } else if (activeTab === 'admin_withdrawals') {
             updatedSettings = {
@@ -1241,11 +1256,27 @@ export default function App() {
               rocketEnabled: settings.rocketEnabled !== undefined ? settings.rocketEnabled : existingSettings.rocketEnabled,
             };
           } else if (activeTab === 'admin_referral') {
+            const parsedCommission = typeof settings.referralCommissionPercent === 'number'
+              ? settings.referralCommissionPercent
+              : (parseFloat(String(settings.referralCommissionPercent)) || 0);
+
+            const parsedMinWd = typeof settings.minReferralWithdrawLimit === 'number'
+              ? settings.minReferralWithdrawLimit
+              : (parseFloat(String(settings.minReferralWithdrawLimit)) || 0);
+
+            const parsedBonus = typeof settings.referralBonusAmount === 'number'
+              ? settings.referralBonusAmount
+              : (parseFloat(String(settings.referralBonusAmount)) || 0);
+
+            const cleanBotUsername = (settings.botUsername || '').replace('@', '').trim();
+
             updatedSettings = {
               ...existingSettings,
               referralSystemEnabled: settings.referralSystemEnabled !== undefined ? settings.referralSystemEnabled : existingSettings.referralSystemEnabled,
-              referralBonusAmount: settings.referralBonusAmount !== undefined ? settings.referralBonusAmount : existingSettings.referralBonusAmount,
-              minReferralWithdrawLimit: settings.minReferralWithdrawLimit !== undefined ? settings.minReferralWithdrawLimit : existingSettings.minReferralWithdrawLimit,
+              referralCommissionPercent: settings.referralCommissionPercent !== undefined ? parsedCommission : (existingSettings.referralCommissionPercent ?? 10),
+              referralBonusAmount: settings.referralBonusAmount !== undefined ? parsedBonus : (existingSettings.referralBonusAmount ?? 10),
+              minReferralWithdrawLimit: settings.minReferralWithdrawLimit !== undefined ? parsedMinWd : (existingSettings.minReferralWithdrawLimit ?? 500),
+              botUsername: cleanBotUsername !== undefined ? cleanBotUsername : (existingSettings.botUsername || ''),
             };
           } else if (activeTab === 'admin_leaderboard') {
             updatedSettings = {
